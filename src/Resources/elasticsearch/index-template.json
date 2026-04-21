@@ -1,0 +1,55 @@
+{
+    "index_patterns": ["audit-*"],
+    "priority": 100,
+    "template": {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 1
+        },
+        "mappings": {
+            "properties": {
+                "event_id": { "type": "keyword" },
+                "event_type": { "type": "keyword" },
+                "source": { "type": "keyword" },
+                "occurred_at": { "type": "date", "format": "strict_date_time||strict_date_time_no_millis||epoch_millis" },
+                "actor": {
+                    "properties": {
+                        "id": { "type": "keyword" },
+                        "type": { "type": "keyword" },
+                        "firewall": { "type": "keyword" }
+                    }
+                },
+                "impersonator_id": { "type": "keyword" },
+                "target": {
+                    "properties": {
+                        "class": { "type": "keyword" },
+                        "id": { "type": "keyword" },
+                        "label": { "type": "text" }
+                    }
+                },
+                "action": { "type": "keyword" },
+                "ip_address": { "type": "ip" },
+                "user_agent": {
+                    "type": "text",
+                    "fields": { "raw": { "type": "keyword", "ignore_above": 256 } }
+                },
+                "request": {
+                    "properties": {
+                        "method": { "type": "keyword" },
+                        "path": { "type": "keyword" }
+                    }
+                },
+                "session_id_hash": { "type": "keyword" },
+                "snapshot": {
+                    "properties": {
+                        "mode": { "type": "keyword" },
+                        "pre_image": { "type": "object", "enabled": false },
+                        "post_image": { "type": "object", "enabled": false },
+                        "diff": { "type": "object", "enabled": false }
+                    }
+                },
+                "context": { "type": "object", "enabled": false }
+            }
+        }
+    }
+}

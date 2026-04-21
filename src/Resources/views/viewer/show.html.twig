@@ -1,0 +1,149 @@
+{% extends '@AuditBundle/layout.html.twig' %}
+
+{% block title %}Audit event · {{ row.event_id }}{% endblock %}
+
+{% block body %}
+    <div class="au-header">
+        <h1><span class="badge badge-type badge-type-{{ row.event_type }}">{{ row.event_type }}</span> <small class="code">{{ row.event_id }}</small></h1>
+        <div>
+            <a href="{{ path('hexis_audit_index') }}" class="btn btn-sm btn-outline-secondary">← Back</a>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header"><strong>Event</strong></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-4 text-muted">Occurred at</dt>
+                        <dd class="col-8 code">{{ row.occurred_at ? row.occurred_at|date('Y-m-d H:i:s.u') : '' }}</dd>
+
+                        <dt class="col-4 text-muted">Event type</dt>
+                        <dd class="col-8">{{ row.event_type }}</dd>
+
+                        {% if row.source %}
+                            <dt class="col-4 text-muted">Source</dt>
+                            <dd class="col-8"><span class="badge bg-secondary">{{ row.source }}</span></dd>
+                        {% endif %}
+
+                        {% if row.action %}
+                            <dt class="col-4 text-muted">Action</dt>
+                            <dd class="col-8 code">{{ row.action }}</dd>
+                        {% endif %}
+
+                        <dt class="col-4 text-muted">Source</dt>
+                        <dd class="col-8 code">{{ row.source_of_truth ?? 'primary' }}</dd>
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header"><strong>Actor</strong></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-4 text-muted">Id</dt>
+                        <dd class="col-8 code">{{ row.actor_id ?? '—' }}</dd>
+                        {% if row.actor_type %}
+                            <dt class="col-4 text-muted">Type</dt>
+                            <dd class="col-8 code">{{ row.actor_type }}</dd>
+                        {% endif %}
+                        {% if row.actor_firewall %}
+                            <dt class="col-4 text-muted">Firewall</dt>
+                            <dd class="col-8"><span class="badge badge-firewall">{{ row.actor_firewall }}</span></dd>
+                        {% endif %}
+                        {% if row.impersonator_id %}
+                            <dt class="col-4 text-muted">Impersonator</dt>
+                            <dd class="col-8 code">{{ row.impersonator_id }}</dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        {% if row.target_class or row.target_id %}
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><strong>Target</strong></div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-4 text-muted">Class</dt>
+                            <dd class="col-8 code">{{ row.target_class ?? '—' }}</dd>
+                            <dt class="col-4 text-muted">Id</dt>
+                            <dd class="col-8 code">{{ row.target_id ?? '—' }}</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header"><strong>Request</strong></div>
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-4 text-muted">IP</dt>
+                        <dd class="col-8 code">{{ row.ip_address ?? '—' }}</dd>
+                        <dt class="col-4 text-muted">Method</dt>
+                        <dd class="col-8 code">{{ row.request_method ?? '—' }}</dd>
+                        <dt class="col-4 text-muted">Path</dt>
+                        <dd class="col-8 code">{{ row.request_path ?? '—' }}</dd>
+                        {% if row.session_id_hash %}
+                            <dt class="col-4 text-muted">Session</dt>
+                            <dd class="col-8 code"><a href="{{ path('hexis_audit_session', {sessionIdHash: row.session_id_hash}) }}">{{ row.session_id_hash|slice(0, 16) }}…</a></dd>
+                        {% endif %}
+                        {% if row.user_agent %}
+                            <dt class="col-4 text-muted">User agent</dt>
+                            <dd class="col-8 code" style="word-break: break-all">{{ row.user_agent }}</dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </div>
+        </div>
+
+        {% if row.diff %}
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header"><strong>Diff</strong> <small class="text-muted">(changed fields)</small></div>
+                    <div class="card-body">
+                        <pre class="json">{{ row.diff|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if row.pre_image %}
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><strong>Pre-image</strong> <small class="text-muted">(before the change)</small></div>
+                    <div class="card-body">
+                        <pre class="json">{{ row.pre_image|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if row.post_image %}
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><strong>Post-image</strong> <small class="text-muted">(after the change)</small></div>
+                    <div class="card-body">
+                        <pre class="json">{{ row.post_image|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {% if row.context %}
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header"><strong>Context</strong></div>
+                    <div class="card-body">
+                        <pre class="json">{{ row.context|json_encode(constant('JSON_PRETTY_PRINT') b-or constant('JSON_UNESCAPED_SLASHES') b-or constant('JSON_UNESCAPED_UNICODE')) }}</pre>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

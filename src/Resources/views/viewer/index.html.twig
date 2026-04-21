@@ -1,0 +1,124 @@
+{% extends '@AuditBundle/layout.html.twig' %}
+
+{% block title %}Audit · {{ total }}{% endblock %}
+
+{% block body %}
+    <div class="au-header">
+        <h1>Audit log <small>{{ total }} event(s)</small></h1>
+    </div>
+
+    <form method="get" class="row g-2 mb-3">
+        <div class="col-md-2">
+            <select name="source" class="form-select form-select-sm">
+                <option value="">(any source)</option>
+                {% for s in sources %}
+                    <option value="{{ s }}"{% if filters_raw.source == s %} selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select name="event_type" class="form-select form-select-sm">
+                <option value="">(any event type)</option>
+                {% for t in event_types %}
+                    <option value="{{ t }}"{% if filters_raw.event_type == t %} selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <select name="actor_firewall" class="form-select form-select-sm">
+                <option value="">(any firewall)</option>
+                {% for f in firewalls %}
+                    <option value="{{ f }}"{% if filters_raw.actor_firewall == f %} selected{% endif %}>{{ f }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <input type="text" name="actor_id" value="{{ filters_raw.actor_id }}" class="form-control form-control-sm" placeholder="actor id">
+        </div>
+        <div class="col-md-2">
+            <input type="text" name="target_class" value="{{ filters_raw.target_class }}" class="form-control form-control-sm" placeholder="target class">
+        </div>
+        <div class="col-md-2">
+            <input type="date" name="from" value="{{ filters_raw.from }}" class="form-control form-control-sm" title="from">
+        </div>
+        <div class="col-md-2">
+            <input type="date" name="to" value="{{ filters_raw.to }}" class="form-control form-control-sm" title="to">
+        </div>
+        <div class="col-md-10">
+            <input type="search" name="q" value="{{ filters_raw.q }}" class="form-control form-control-sm" placeholder="search in actor / target / action…">
+        </div>
+        <div class="col-md-2 text-end">
+            <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+            <a href="{{ path('hexis_audit_index') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+        </div>
+    </form>
+
+    {% if rows is empty %}
+        <div class="alert alert-info">No events match the current filters.</div>
+    {% else %}
+        <div class="table-responsive">
+            <table class="table table-hover table-sm au-log align-middle bg-white">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Source</th>
+                        <th>Event</th>
+                        <th>Actor</th>
+                        <th>Target</th>
+                        <th>Session</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td class="code" style="white-space: nowrap">{{ row.occurred_at ? row.occurred_at|date('Y-m-d H:i:s') : '' }}</td>
+                            <td>{% if row.source %}<span class="badge bg-secondary">{{ row.source }}</span>{% endif %}</td>
+                            <td><span class="badge badge-type badge-type-{{ row.event_type }}">{{ row.event_type }}</span></td>
+                            <td>
+                                {% if row.actor_id %}
+                                    <strong>{{ row.actor_id }}</strong>
+                                    {% if row.actor_firewall %}<span class="badge badge-firewall">{{ row.actor_firewall }}</span>{% endif %}
+                                    {% if row.impersonator_id %}<br><small class="text-muted">via {{ row.impersonator_id }}</small>{% endif %}
+                                {% else %}
+                                    <small class="text-muted">—</small>
+                                {% endif %}
+                            </td>
+                            <td class="code">
+                                {% if row.target_class %}
+                                    {{ row.target_class|split('\\')|last }}{% if row.target_id %}#{{ row.target_id }}{% endif %}
+                                {% elseif row.action %}
+                                    {{ row.action }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.session_id_hash %}
+                                    <a href="{{ path('hexis_audit_session', {sessionIdHash: row.session_id_hash}) }}" class="code text-decoration-none" title="Show session timeline">{{ row.session_id_hash|slice(0, 8) }}…</a>
+                                {% endif %}
+                            </td>
+                            <td><a href="{{ path('hexis_audit_show', {eventId: row.event_id}) }}" class="btn btn-sm btn-outline-secondary">View</a></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% set total_pages = (total / page_size)|round(0, 'ceil') %}
+        {% if total_pages > 1 %}
+            <nav class="mt-3">
+                <ul class="pagination pagination-sm">
+                    {% set current_query = filters_raw|filter(v => v) %}
+                    {% if page > 1 %}
+                        <li class="page-item"><a class="page-link" href="{{ path('hexis_audit_index', current_query|merge({page: page - 1})) }}">Previous</a></li>
+                    {% endif %}
+                    <li class="page-item active"><span class="page-link">Page {{ page }} of {{ total_pages }}</span></li>
+                    {% if page < total_pages %}
+                        <li class="page-item"><a class="page-link" href="{{ path('hexis_audit_index', current_query|merge({page: page + 1})) }}">Next</a></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        {% endif %}
+    {% endif %}
+{% endblock %}

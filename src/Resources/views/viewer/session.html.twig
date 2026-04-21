@@ -1,0 +1,55 @@
+{% extends '@AuditBundle/layout.html.twig' %}
+
+{% block title %}Session · {{ session_id_hash|slice(0, 8) }}…{% endblock %}
+
+{% block body %}
+    <div class="au-header">
+        <h1>Session timeline <small class="code">{{ session_id_hash|slice(0, 16) }}…</small></h1>
+        <div>
+            <a href="{{ path('hexis_audit_index') }}" class="btn btn-sm btn-outline-secondary">← Back</a>
+        </div>
+    </div>
+
+    {% if rows is empty %}
+        <div class="alert alert-info">No events captured for this session.</div>
+    {% else %}
+        <p class="text-muted mb-3">{{ rows|length }} event(s) · {{ rows|first.occurred_at|date('Y-m-d H:i:s') }} → {{ rows|last.occurred_at|date('Y-m-d H:i:s') }}</p>
+
+        <div class="timeline">
+            {% for row in rows %}
+                <div class="timeline-item ti-{{ row.event_type }}">
+                    <div class="timeline-time">{{ row.occurred_at|date('H:i:s') }} <span class="text-muted">· {{ row.occurred_at|date('Y-m-d') }}</span></div>
+                    <div class="mt-1">
+                        <span class="badge badge-type badge-type-{{ row.event_type }}">{{ row.event_type }}</span>
+                        {% if row.actor_id %}
+                            <strong class="ms-2">{{ row.actor_id }}</strong>
+                        {% endif %}
+                        {% if row.actor_firewall %}
+                            <span class="badge badge-firewall ms-1">{{ row.actor_firewall }}</span>
+                        {% endif %}
+                        {% if row.impersonator_id %}
+                            <small class="text-muted ms-2">as {{ row.impersonator_id }}</small>
+                        {% endif %}
+                    </div>
+                    <div class="mt-1 code">
+                        {% if row.target_class %}
+                            {{ row.target_class|split('\\')|last }}{% if row.target_id %}#{{ row.target_id }}{% endif %}
+                        {% endif %}
+                        {% if row.action %}<span class="ms-2">· {{ row.action }}</span>{% endif %}
+                        {% if row.request_method and row.request_path %}
+                            <span class="ms-2 text-muted">{{ row.request_method }} {{ row.request_path }}</span>
+                        {% endif %}
+                    </div>
+                    {% if row.diff %}
+                        <div class="mt-1">
+                            {% for field, change in row.diff %}
+                                <code class="me-2"><strong>{{ field }}</strong>: {{ change.old|json_encode }} → {{ change.new|json_encode }}</code>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                    <div class="mt-1"><a href="{{ path('hexis_audit_show', {eventId: row.event_id}) }}" class="small">Details →</a></div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}

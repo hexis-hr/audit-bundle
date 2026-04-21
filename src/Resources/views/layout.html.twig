@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Audit{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <style>
+        body { background: #f6f7f9; }
+        .au-wrap { max-width: 1400px; margin: 24px auto; padding: 0 16px; }
+        .au-header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #dee2e6; padding-bottom: 12px; margin-bottom: 20px; }
+        .au-header h1 { font-size: 22px; margin: 0; }
+        .au-header small { color: #666; font-weight: normal; font-size: 12px; margin-left: 8px; }
+        .badge-type { font-size: 11px; font-weight: 600; letter-spacing: .03em; padding: 3px 8px; }
+        .badge-type-login { background: #2eb85c; color: #fff; }
+        .badge-type-logout { background: #8c8c8c; color: #fff; }
+        .badge-type-login_failure { background: #e55353; color: #fff; }
+        .badge-type-switch_user_enter, .badge-type-switch_user_exit { background: #f39c12; color: #fff; }
+        .badge-type-entity_insert { background: #3498db; color: #fff; }
+        .badge-type-entity_update { background: #9b59b6; color: #fff; }
+        .badge-type-entity_delete { background: #c0392b; color: #fff; }
+        .badge-type-custom { background: #34495e; color: #fff; }
+        .badge-firewall { background: #495057; color: #fff; font-size: 10px; font-weight: 500; padding: 2px 6px; }
+        .code { font-family: "SF Mono", Consolas, monospace; font-size: 11px; color: #555; }
+        .json { background: #1e1e1e; color: #e6e6e6; padding: 12px; border-radius: 4px; font-family: "SF Mono", Consolas, monospace; font-size: 11px; white-space: pre-wrap; overflow-x: auto; max-height: 480px; }
+        .ctx { background: #f4f6f9; border: 1px solid #e3e5ea; border-radius: 4px; padding: 10px; font-family: "SF Mono", Consolas, monospace; font-size: 11px; white-space: pre-wrap; }
+        table.au-log th { font-size: 11px; text-transform: uppercase; color: #666; letter-spacing: .04em; }
+        .timeline { border-left: 2px solid #dee2e6; padding-left: 20px; margin-left: 10px; }
+        .timeline-item { position: relative; margin-bottom: 18px; }
+        .timeline-item::before { content: ''; position: absolute; left: -26px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: #6c757d; }
+        .timeline-item.ti-login::before { background: #2eb85c; }
+        .timeline-item.ti-logout::before { background: #8c8c8c; }
+        .timeline-item.ti-entity_update::before { background: #9b59b6; }
+        .timeline-item.ti-entity_delete::before { background: #c0392b; }
+        .timeline-item.ti-entity_insert::before { background: #3498db; }
+        .timeline-time { font-size: 11px; color: #666; }
+    </style>
+</head>
+<body>
+<div class="au-wrap">
+    {% for type, messages in app.flashes %}
+        {% for message in messages %}
+            <div class="alert alert-{{ type == 'error' ? 'danger' : type }}">{{ message }}</div>
+        {% endfor %}
+    {% endfor %}
+
+    {% block body %}{% endblock %}
+</div>
+</body>
+</html>

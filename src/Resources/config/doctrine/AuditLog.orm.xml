@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<doctrine-mapping xmlns="http://doctrine-project.org/schemas/orm/doctrine-mapping"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://doctrine-project.org/schemas/orm/doctrine-mapping https://www.doctrine-project.org/schemas/orm/doctrine-mapping.xsd">
+
+    <entity name="Hexis\AuditBundle\Entity\AuditLog" table="hexis_audit_log">
+
+        <id name="id" type="bigint">
+            <generator strategy="IDENTITY"/>
+        </id>
+
+        <field name="eventId" column="event_id" type="string" length="26" unique="true"/>
+        <field name="eventType" column="event_type" type="string" length="32"/>
+        <field name="source" column="source" type="string" length="64" nullable="true"/>
+        <field name="occurredAt" column="occurred_at" type="datetime_immutable"/>
+
+        <field name="actorId" column="actor_id" type="string" length="64" nullable="true"/>
+        <field name="actorType" column="actor_type" type="string" length="255" nullable="true"/>
+        <field name="actorFirewall" column="actor_firewall" type="string" length="32" nullable="true"/>
+        <field name="impersonatorId" column="impersonator_id" type="string" length="64" nullable="true"/>
+
+        <field name="targetClass" column="target_class" type="string" length="255" nullable="true"/>
+        <field name="targetId" column="target_id" type="string" length="64" nullable="true"/>
+        <field name="action" type="string" length="64" nullable="true"/>
+
+        <field name="ipAddress" column="ip_address" type="string" length="45" nullable="true"/>
+        <field name="userAgent" column="user_agent" type="text" nullable="true"/>
+        <field name="requestMethod" column="request_method" type="string" length="10" nullable="true"/>
+        <field name="requestPath" column="request_path" type="string" length="1024" nullable="true"/>
+        <field name="sessionIdHash" column="session_id_hash" type="string" length="64" nullable="true"/>
+
+        <field name="snapshotMode" column="snapshot_mode" type="string" length="16" nullable="true"/>
+        <field name="preImage" column="pre_image" type="json" nullable="true"/>
+        <field name="postImage" column="post_image" type="json" nullable="true"/>
+        <field name="diff" column="diff" type="json" nullable="true"/>
+        <field name="context" column="context" type="json" nullable="true"/>
+
+        <field name="sourceOfTruth" column="source_of_truth" type="string" length="16"/>
+        <field name="pendingReplayAt" column="pending_replay_at" type="datetime_immutable" nullable="true"/>
+
+        <unique-constraints>
+            <unique-constraint name="uniq_hexis_audit_event_id" columns="event_id"/>
+        </unique-constraints>
+
+        <indexes>
+            <index name="idx_hexis_audit_occurred_at" columns="occurred_at"/>
+            <index name="idx_hexis_audit_actor_occurred" columns="actor_id,occurred_at"/>
+            <index name="idx_hexis_audit_target" columns="target_class,target_id,occurred_at"/>
+            <index name="idx_hexis_audit_type_occurred" columns="event_type,occurred_at"/>
+            <index name="idx_hexis_audit_source_occurred" columns="source,occurred_at"/>
+            <index name="idx_hexis_audit_session" columns="session_id_hash,occurred_at"/>
+            <index name="idx_hexis_audit_replay" columns="source_of_truth,pending_replay_at"/>
+        </indexes>
+
+    </entity>
+
+</doctrine-mapping>

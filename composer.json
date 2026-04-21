@@ -1,0 +1,64 @@
+{
+    "name": "hexis/audit-bundle",
+    "description": "Symfony bundle that audits security events (login, logout, switch_user, failed-login) and Doctrine writes (insert/update/delete) with optional pre-image snapshots, storing to Elasticsearch or Doctrine with primary/fallback semantics.",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "keywords": [
+        "symfony",
+        "symfony-bundle",
+        "audit",
+        "audit-trail",
+        "security",
+        "doctrine",
+        "elasticsearch",
+        "versioning"
+    ],
+    "homepage": "https://github.com/hexis-hr/audit-bundle",
+    "support": {
+        "issues": "https://github.com/hexis-hr/audit-bundle/issues",
+        "source": "https://github.com/hexis-hr/audit-bundle"
+    },
+    "authors": [
+        {
+            "name": "Sinisa Valentic",
+            "email": "sinisa@hexis.hr",
+            "homepage": "https://hexis.hr"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "doctrine/dbal": "^3 || ^4",
+        "doctrine/doctrine-bundle": "^2.18",
+        "doctrine/doctrine-migrations-bundle": "^3.7",
+        "doctrine/orm": "^3.5 || ^4",
+        "symfony/config": "^6.4 || ^7.0",
+        "symfony/console": "^6.4 || ^7.0",
+        "symfony/dependency-injection": "^6.4 || ^7.0",
+        "symfony/event-dispatcher": "^6.4 || ^7.0",
+        "symfony/framework-bundle": "^6.4 || ^7.0",
+        "symfony/http-kernel": "^6.4 || ^7.0",
+        "symfony/property-access": "^6.4 || ^7.0",
+        "symfony/security-http": "^6.4 || ^7.0",
+        "symfony/serializer": "^6.4 || ^7.0",
+        "symfony/uid": "^6.4 || ^7.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.5 || ^12.0"
+    },
+    "suggest": {
+        "elastic/elasticsearch": "Required for ElasticsearchAuditWriter (8.x). Without it, only Doctrine storage is available.",
+        "symfony/messenger": "Enables async audit flush via a Messenger transport instead of kernel.terminate."
+    },
+    "autoload": {
+        "psr-4": {
+            "Hexis\\AuditBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Hexis\\AuditBundle\\Tests\\": "tests/"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
