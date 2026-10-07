@@ -12,6 +12,7 @@ use Hexis\AuditBundle\Domain\Snapshot;
 use Hexis\AuditBundle\Domain\Target;
 use Hexis\AuditBundle\Storage\AuditWriter;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\Authentication\Token\SwitchUserToken;
 use Symfony\Component\Security\Core\User\UserInterface;
 use Symfony\Component\Security\Http\Event\LoginFailureEvent;
@@ -114,14 +115,15 @@ final class SecurityAuditSubscriber implements EventSubscriberInterface
             target: new Target(),
             snapshot: Snapshot::none(),
             context: $this->contextCollector->collectContext(),
-            action: $event->getException()::class,
+            // Short name: FQCNs (e.g. CustomUserMessageAccountStatusException) overflow the 64-char column.
+            action: mb_substr((new \ReflectionClass($event->getException()))->getShortName(), 0, 64),
             source: 'security',
         ));
     }
 
     public function onLogout(LogoutEvent $event): void
     {
-        $firewall = $event->getRequest()->attributes->get('_firewall_context');
+        $firewall = $this->firewallFromRequest($event->getRequest());
         if (!$this->shouldCapture(self::EVENT_LOGOUT, $firewall)) {
             return;
         }
@@ -153,7 +155,7 @@ final class SecurityAuditSubscriber implements EventSubscriberInterface
         $token = $event->getToken();
         $isEnter = $token instanceof SwitchUserToken;
 
-        $firewall = $this->firewallFromRequest($event);
+        $firewall = $this->firewallFromRequest($event->getRequest());
         if (!$this->shouldCapture(self::EVENT_SWITCH_USER, $firewall)) {
             return;
         }
@@ -188,11 +190,16 @@ final class SecurityAuditSubscriber implements EventSubscriberInterface
         ));
     }
 
-    private function firewallFromRequest(SwitchUserEvent $event): ?string
+    private function firewallFromRequest(Request $request): ?string
     {
-        // SwitchUserEvent doesn't expose the firewall name directly — it's on the Request's
-        // firewall config, which the Security component sets as an attribute.
-        return $event->getRequest()->attributes->get('_firewall_context');
+        // Logout/SwitchUser events don't expose the firewall name. FirewallMap stores the context
+        // service id ("security.firewall.map.context.main") on the request; strip it to the name.
+        $context = $request->attributes->get('_firewall_context');
+        if (!\is_string($context)) {
+            return null;
+        }
+
+        return mb_substr(str_replace('security.firewall.map.context.', '', $context), 0, 32);
     }
 
     private function shouldCapture(string $eventName, ?string $firewall): bool

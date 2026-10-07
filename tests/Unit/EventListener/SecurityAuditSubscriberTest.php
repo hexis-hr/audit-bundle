@@ -15,6 +15,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Security\Core\Authentication\Token\SwitchUserToken;
 use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 use Symfony\Component\Security\Core\Exception\BadCredentialsException;
+use Symfony\Component\Security\Core\Exception\CustomUserMessageAccountStatusException;
 use Symfony\Component\Security\Core\User\InMemoryUser;
 use Symfony\Component\Security\Http\Authenticator\AuthenticatorInterface;
 use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
@@ -88,7 +89,7 @@ final class SecurityAuditSubscriberTest extends TestCase
         $recorded = $this->writer->written[0];
         self::assertSame(EventType::LOGIN_FAILURE, $recorded->type);
         self::assertSame('alice', $recorded->actor->id);
-        self::assertSame(BadCredentialsException::class, $recorded->action);
+        self::assertSame('BadCredentialsException', $recorded->action);
 
         // Paranoid: the password must not appear in any stringified form of the event.
         $serialized = serialize($recorded);
@@ -108,6 +109,35 @@ final class SecurityAuditSubscriberTest extends TestCase
         self::assertCount(1, $this->writer->written);
         self::assertSame(EventType::LOGOUT, $this->writer->written[0]->type);
         self::assertSame('alice', $this->writer->written[0]->actor->id);
+    }
+
+    public function testLogoutStripsFirewallContextPrefix(): void
+    {
+        // FirewallMap sets the context service id, 34 chars — overflowed actor_firewall VARCHAR(32).
+        $request = new Request();
+        $request->attributes->set('_firewall_context', 'security.firewall.map.context.main');
+        $event = new LogoutEvent($request, new UsernamePasswordToken(new InMemoryUser('alice', null), 'main'));
+
+        (new SecurityAuditSubscriber($this->writer, $this->context, enabledFirewalls: ['main']))->onLogout($event);
+
+        self::assertCount(1, $this->writer->written);
+        self::assertSame('main', $this->writer->written[0]->actor->firewall);
+    }
+
+    public function testLoginFailureActionFitsColumn(): void
+    {
+        $event = new LoginFailureEvent(
+            new CustomUserMessageAccountStatusException('disabled'),
+            $this->dummyAuthenticator(),
+            new Request(),
+            null,
+            'main',
+        );
+
+        $this->subscriber()->onLoginFailure($event);
+
+        self::assertSame('CustomUserMessageAccountStatusException', $this->writer->written[0]->action);
+        self::assertLessThanOrEqual(64, mb_strlen($this->writer->written[0]->action));
     }
 
     public function testSwitchUserEnter(): void
