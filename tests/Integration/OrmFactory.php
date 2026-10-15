@@ -22,6 +22,11 @@ final class OrmFactory
             isDevMode: true,
         );
 
+        // symfony/var-exporter 8 dropped LazyGhost, so ORM 3 needs PHP 8.4 native lazy objects.
+        if (\PHP_VERSION_ID >= 80400 && method_exists($config, 'enableNativeLazyObjects')) {
+            $config->enableNativeLazyObjects(true);
+        }
+
         $connection = DriverManager::getConnection([
             'driver' => 'pdo_sqlite',
             'memory' => true,

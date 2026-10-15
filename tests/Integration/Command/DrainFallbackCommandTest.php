@@ -16,7 +16,6 @@ use Hexis\AuditBundle\Storage\AuditWriter;
 use Hexis\AuditBundle\Storage\DoctrineAuditWriter;
 use Hexis\AuditBundle\Tests\Integration\SchemaFactory;
 use PHPUnit\Framework\TestCase;
-use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Tester\CommandTester;
 
 final class DrainFallbackCommandTest extends TestCase
@@ -84,10 +83,7 @@ final class DrainFallbackCommandTest extends TestCase
             }
         };
 
-        $command = new DrainFallbackCommand($this->connection, SchemaFactory::TABLE, $failingPrimary);
-        $app = new Application();
-        $app->add($command);
-        $tester = new CommandTester($app->find('audit:drain-fallback'));
+        $tester = new CommandTester(new DrainFallbackCommand($this->connection, SchemaFactory::TABLE, $failingPrimary));
 
         $tester->execute([]);
 
@@ -129,10 +125,7 @@ final class DrainFallbackCommandTest extends TestCase
             }
         };
 
-        $command = new DrainFallbackCommand($this->connection, SchemaFactory::TABLE, $primary);
-        $app = new Application();
-        $app->add($command);
-        return new CommandTester($app->find('audit:drain-fallback'));
+        return new CommandTester(new DrainFallbackCommand($this->connection, SchemaFactory::TABLE, $primary));
     }
 
     public function capture(AuditEvent $event): void

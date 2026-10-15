@@ -21,7 +21,7 @@ Built for when "who changed what, when" is a compliance question.
 ## Requirements
 
 - PHP 8.2+
-- Symfony 7.0+ (tested on 7.3)
+- Symfony 6.4, 7.x or 8.x (tested on 6.4, 7.4 and 8.1)
 - Doctrine ORM 3 / DBAL 3
 - `symfony/security-http`
 
