@@ -83,7 +83,7 @@ audit:
         fallback: ~                        # ~ | doctrine
         elasticsearch:
             client: ~                      # service id of your configured ES Client adapter
-            index: 'audit-%Y.%m'           # strftime tokens %Y/%m/%d/%H supported
+            index: 'audit-%%Y.%%m'         # tokens %Y/%m/%d/%H, written %%Y etc. (config values are parameter-resolved)
             index_template_name: audit
             refresh: false
         doctrine:
@@ -234,7 +234,7 @@ audit:
         fallback: doctrine            # optional — pending rows drain to ES later
         elasticsearch:
             client: App\Audit\ElasticClientAdapter
-            index: 'audit-%Y.%m'
+            index: 'audit-%%Y.%%m'        # monthly indices; %% keeps Symfony from reading %Y as a parameter
 ```
 
 Then install the index template once (safe to re-run):

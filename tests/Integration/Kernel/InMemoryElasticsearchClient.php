@@ -16,13 +16,19 @@ final class InMemoryElasticsearchClient implements ElasticsearchClient
     /** @var array<string, array<string, mixed>> documents keyed by id */
     public array $documents = [];
 
+    /** @var array<string, string> index name keyed by document id */
+    public array $indices = [];
+
     /** @var array<string, array<string, mixed>> templates keyed by name */
     public array $templates = [];
+
+    public ?string $lastSearchPattern = null;
 
     public function index(string $index, string $id, array $document, bool $refresh = false): void
     {
         $this->failIfDown();
         $this->documents[$id] = $document;
+        $this->indices[$id] = $index;
     }
 
     public function bulk(iterable $operations, bool $refresh = false): void
@@ -30,6 +36,7 @@ final class InMemoryElasticsearchClient implements ElasticsearchClient
         $this->failIfDown();
         foreach ($operations as [$index, $id, $document]) {
             $this->documents[$id] = $document;
+            $this->indices[$id] = $index;
         }
     }
 
@@ -41,6 +48,8 @@ final class InMemoryElasticsearchClient implements ElasticsearchClient
 
     public function search(string $indexPattern, array $body): array
     {
+        $this->lastSearchPattern = $indexPattern;
+
         return ['hits' => [], 'total' => 0];
     }
 

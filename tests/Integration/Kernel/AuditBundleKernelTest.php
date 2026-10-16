@@ -158,6 +158,47 @@ final class AuditBundleKernelTest extends KernelTestCase
         self::assertSame(1, $this->countRows(DoctrineAuditWriter::SOURCE_REPLAYED));
     }
 
+    public function testDefaultIndexPatternWritesMonthlyIndicesAndSearchesThemAll(): void
+    {
+        $this->writeOneEntity(TestKernel::ENV_ELASTICSEARCH);
+
+        self::assertSame('audit-%Y.%m', self::getContainer()->getParameter('audit.storage.elasticsearch.index'));
+        self::assertMatchesRegularExpression('/^audit-\d{4}\.\d{2}$/', $this->onlyIndex());
+
+        $this->reader()->list([], 10, 0);
+        self::assertSame('audit-*', $this->elasticsearch()->lastSearchPattern);
+    }
+
+    public function testEscapedIndexPatternFromTheHostConfigurationIsResolvedPerEvent(): void
+    {
+        $this->writeOneEntity(TestKernel::ENV_ELASTICSEARCH_DAILY);
+
+        self::assertSame('audit-%Y.%m.%d', self::getContainer()->getParameter('audit.storage.elasticsearch.index'));
+        self::assertMatchesRegularExpression('/^audit-\d{4}\.\d{2}\.\d{2}$/', $this->onlyIndex());
+
+        $this->reader()->list([], 10, 0);
+        self::assertSame('audit-*', $this->elasticsearch()->lastSearchPattern);
+    }
+
+    private function writeOneEntity(string $environment): void
+    {
+        $em = $this->bootWithSchema($environment);
+
+        $entity = new AuditedEntity();
+        $entity->name = 'Alice';
+        $em->persist($entity);
+        $em->flush();
+        $this->terminate();
+    }
+
+    private function onlyIndex(): string
+    {
+        $indices = array_values($this->elasticsearch()->indices);
+        self::assertCount(1, $indices);
+
+        return $indices[0];
+    }
+
     /**
      * Boots the kernel, runs the bundle's migrations through the console and creates the fixture table.
      */

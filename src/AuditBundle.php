@@ -108,7 +108,7 @@ final class AuditBundle extends AbstractBundle
                                     ->defaultNull()
                                 ->end()
                                 ->scalarNode('index')
-                                    ->info('Index name pattern. strftime tokens supported, e.g. "audit-%Y.%m".')
+                                    ->info('Index name pattern. Tokens %Y, %m, %d and %H are supported; configuration values are parameter-resolved, so write them as %%Y etc., e.g. "audit-%%Y.%%m".')
                                     ->defaultValue('audit-%Y.%m')
                                 ->end()
                                 ->scalarNode('index_template_name')->defaultValue('audit')->end()
@@ -215,6 +215,9 @@ final class AuditBundle extends AbstractBundle
         $builder->setParameter('audit.storage.fallback', $config['storage']['fallback']);
 
         $builder->setParameter('audit.storage.elasticsearch.client', $config['storage']['elasticsearch']['client']);
+        // A host's value arrives still escaped ("audit-%%Y.%%m": configuration is parameter-resolved), the default
+        // does not: keep the real pattern from here on and escape it wherever it goes into the container.
+        $config['storage']['elasticsearch']['index'] = str_replace('%%', '%', (string) $config['storage']['elasticsearch']['index']);
         // Double literal % signs so the Symfony parameter bag doesn't treat strftime tokens (e.g. %Y, %m) as parameter refs.
         $builder->setParameter('audit.storage.elasticsearch.index', str_replace('%', '%%', (string) $config['storage']['elasticsearch']['index']));
         $builder->setParameter('audit.storage.elasticsearch.index_template_name', (string) $config['storage']['elasticsearch']['index_template_name']);
@@ -271,7 +274,7 @@ final class AuditBundle extends AbstractBundle
         ) {
             $builder->setDefinition(ElasticsearchAuditReader::class, new Definition(ElasticsearchAuditReader::class, [
                 '$client' => new Reference(ElasticsearchClient::class),
-                '$indexPattern' => $this->deriveEsSearchPattern($storage['elasticsearch']['index']),
+                '$indexPattern' => str_replace('%', '%%', $this->deriveEsSearchPattern($storage['elasticsearch']['index'])),
             ]));
             $builder->setAlias(AuditReader::class, ElasticsearchAuditReader::class)->setPublic(false);
             return;
@@ -383,9 +386,10 @@ final class AuditBundle extends AbstractBundle
 
         // Writer service — explicit registration so arguments are clear and the class is only
         // instantiated when it's actually used.
+        // Escaped like the parameter above, or the container reads %Y.% as a parameter reference.
         $writerDefinition = new Definition(ElasticsearchAuditWriter::class, [
             '$client' => new Reference(ElasticsearchClient::class),
-            '$indexPattern' => $esConfig['index'],
+            '$indexPattern' => str_replace('%', '%%', $esConfig['index']),
             '$refresh' => $esConfig['refresh'],
         ]);
         $builder->setDefinition(ElasticsearchAuditWriter::class, $writerDefinition);

@@ -18,7 +18,8 @@ use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
  * Boots the bundle the way a host application does, over in-memory SQLite.
  *
  * ENV_DOCTRINE stores audit rows with Doctrine only (the README configuration).
- * ENV_ELASTICSEARCH makes Elasticsearch (InMemoryElasticsearchClient) the primary with the Doctrine fallback.
+ * ENV_ELASTICSEARCH makes Elasticsearch (InMemoryElasticsearchClient) the primary with the Doctrine fallback and the
+ * default index pattern; ENV_ELASTICSEARCH_DAILY does the same with a daily pattern set by the host.
  */
 final class TestKernel extends Kernel
 {
@@ -26,6 +27,7 @@ final class TestKernel extends Kernel
 
     public const ENV_DOCTRINE = 'test';
     public const ENV_ELASTICSEARCH = 'test_es';
+    public const ENV_ELASTICSEARCH_DAILY = 'test_es_daily';
     public const RETENTION_DAYS = 90;
 
     public function registerBundles(): iterable
@@ -117,22 +119,23 @@ final class TestKernel extends Kernel
             ],
         ]);
 
-        if ($this->environment !== self::ENV_ELASTICSEARCH) {
+        if ($this->environment !== self::ENV_ELASTICSEARCH && $this->environment !== self::ENV_ELASTICSEARCH_DAILY) {
             return;
         }
 
         $container->services()->set(InMemoryElasticsearchClient::class)->public();
 
+        $elasticsearch = ['client' => InMemoryElasticsearchClient::class];
+        if ($this->environment === self::ENV_ELASTICSEARCH_DAILY) {
+            // Written the way a host writes it in YAML: configuration values are parameter-resolved.
+            $elasticsearch['index'] = 'audit-%%Y.%%m.%%d';
+        }
+
         $container->extension('audit', [
             'storage' => [
                 'primary' => 'elasticsearch',
                 'fallback' => 'doctrine',
-                'elasticsearch' => [
-                    'client' => InMemoryElasticsearchClient::class,
-                    // Not the default "audit-%Y.%m": AuditBundle passes the pattern unescaped to the
-                    // ElasticsearchAuditWriter definition, so strftime tokens fail as parameter references.
-                    'index' => 'audit',
-                ],
+                'elasticsearch' => $elasticsearch,
             ],
         ]);
     }
