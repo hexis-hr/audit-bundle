@@ -85,16 +85,7 @@ final class DoctrineAuditListener
                 $metadata = $em->getClassMetadata($entity::class);
                 $ids = $metadata->getIdentifierValues($entity);
                 if ($ids !== []) {
-                    $event = new AuditEvent(
-                        type: $event->type,
-                        actor: $event->actor,
-                        target: new Target(class: $event->target->class, id: (string) reset($ids)),
-                        snapshot: $event->snapshot,
-                        context: $event->context,
-                        action: $event->action,
-                        eventId: $event->eventId,
-                        occurredAt: $event->occurredAt,
-                    );
+                    $event = $this->copyEvent($event, target: new Target(class: $event->target->class, id: (string) reset($ids)));
                 }
             }
             $this->writer->write($event);
@@ -181,6 +172,24 @@ final class DoctrineAuditListener
             snapshot: $snapshot,
             context: $this->contextCollector->collectContext(),
             source: $settings->source ?? 'doctrine',
+        );
+    }
+
+    /**
+     * AuditEvent is readonly: rebuild it with the changed parts, carrying every other field over.
+     */
+    private function copyEvent(AuditEvent $event, Target $target): AuditEvent
+    {
+        return new AuditEvent(
+            type: $event->type,
+            actor: $event->actor,
+            target: $target,
+            snapshot: $event->snapshot,
+            context: $event->context,
+            action: $event->action,
+            source: $event->source,
+            eventId: $event->eventId,
+            occurredAt: $event->occurredAt,
         );
     }
 
