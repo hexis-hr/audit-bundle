@@ -23,6 +23,7 @@ Built for when "who changed what, when" is a compliance question.
 - PHP 8.2+
 - Symfony 6.4, 7.x or 8.x (tested on 6.4, 7.4 and 8.1)
 - Doctrine ORM 3 / DBAL 3
+- DoctrineMigrationsBundle 3 or 4
 - `symfony/security-http`
 
 Optional:
