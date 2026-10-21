@@ -106,5 +106,5 @@ return static function (ContainerConfigurator $container): void {
         ->tag('doctrine.event_listener', ['event' => 'postFlush'])
         ->tag('doctrine.event_listener', ['event' => 'onClear'])
         // Gedmo SoftDeleteable's event; never dispatched when Gedmo is not installed.
-        ->tag('doctrine.event_listener', ['event' => 'postSoftDelete']);
+        ->tag('doctrine.event_listener', ['event' => 'preSoftDelete']);
 };

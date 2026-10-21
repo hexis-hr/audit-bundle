@@ -12,6 +12,7 @@ use Hexis\AuditBundle\Domain\AuditContext;
 use Hexis\AuditBundle\Domain\ContextCollector;
 use Hexis\AuditBundle\Domain\EventType;
 use Hexis\AuditBundle\EventListener\DoctrineAuditListener;
+use Hexis\AuditBundle\Serializer\AuditSnapshotNormalizer;
 use Hexis\AuditBundle\Storage\BufferedAuditWriter;
 use Hexis\AuditBundle\Storage\DoctrineAuditWriter;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\SoftDeletableEntity;
@@ -26,7 +27,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class DoctrineAuditListenerSoftDeleteTest extends TestCase
 {
-    private const AUDIT_EVENTS = ['onFlush', 'postFlush', 'onClear', 'postSoftDelete'];
+    private const AUDIT_EVENTS = ['onFlush', 'postFlush', 'onClear', 'preSoftDelete'];
 
     private EntityManager $em;
     private BufferedAuditWriter $buffer;
@@ -60,6 +61,21 @@ final class DoctrineAuditListenerSoftDeleteTest extends TestCase
             $this->em->getConnection()->fetchOne('SELECT deleted_at FROM test_soft_deletable WHERE id = ?', [$entity->id]),
             'the row is soft deleted, not removed',
         );
+    }
+
+    #[DataProvider('listenerOrders')]
+    public function testSoftDeletePreImageIsTheEntityBeforeTheDelete(bool $auditFirst): void
+    {
+        $entity = $this->createEntity($auditFirst);
+
+        $this->em->remove($entity);
+        $this->em->flush();
+        $this->buffer->flush();
+
+        $preImage = json_decode($this->auditRows()[0]['pre_image'], true);
+        self::assertSame('Alice', $preImage['name']);
+        self::assertArrayHasKey('deletedAt', $preImage);
+        self::assertNull($preImage['deletedAt']);
     }
 
     #[DataProvider('listenerOrders')]
@@ -111,6 +127,7 @@ final class DoctrineAuditListenerSoftDeleteTest extends TestCase
             registry: new AuditableRegistry(),
             writer: $this->buffer,
             contextCollector: $this->stubContextCollector(),
+            snapshotNormalizer: new AuditSnapshotNormalizer(),
         );
         $gedmo = new SoftDeleteableListener();
 

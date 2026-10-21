@@ -11,7 +11,7 @@ use Hexis\AuditBundle\Attribute\Auditable;
 #[ORM\Entity]
 #[ORM\Table(name: 'test_soft_deletable')]
 #[Gedmo\SoftDeleteable(fieldName: 'deletedAt', hardDelete: true)]
-#[Auditable(mode: 'changed_fields')]
+#[Auditable(mode: 'full')]
 class SoftDeletableEntity
 {
     #[ORM\Id]

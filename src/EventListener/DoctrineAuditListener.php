@@ -31,7 +31,7 @@ use Hexis\AuditBundle\Storage\AuditWriter;
  * UoW this listener is attached to.
  *
  * Soft deletes: Gedmo SoftDeleteable turns a remove() into an UPDATE of the deletedAt field inside
- * its own onFlush, taking the entity out of the scheduled deletions. Its postSoftDelete event is
+ * its own onFlush, taking the entity out of the scheduled deletions. Its preSoftDelete event is
  * recorded as an ENTITY_DELETE with action "soft_delete", whichever onFlush listener runs first.
  */
 final class DoctrineAuditListener
@@ -82,10 +82,11 @@ final class DoctrineAuditListener
     }
 
     /**
-     * Gedmo dispatches this from its onFlush. If ours ran first the remove() is already staged as a
-     * delete and becomes the soft delete; if Gedmo's ran first our onFlush never sees the entity.
+     * Gedmo dispatches this from its onFlush, before it sets deletedAt, so a full-mode pre-image is
+     * the entity as it was. If ours ran first the remove() is already staged as a delete and becomes
+     * the soft delete; if Gedmo's ran first our onFlush never sees the entity.
      */
-    public function postSoftDelete(LifecycleEventArgs $args): void
+    public function preSoftDelete(LifecycleEventArgs $args): void
     {
         $entity = $args->getObject();
         $index = $this->stagedDeletions[spl_object_id($entity)] ?? null;

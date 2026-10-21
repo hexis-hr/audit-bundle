@@ -65,8 +65,8 @@ final class AuditBundleKernelTest extends KernelTestCase
         self::assertSame('hexis_audit_log', $em->getClassMetadata(AuditLog::class)->getTableName());
 
         $events = $em->getEventManager();
-        self::assertTrue($events->hasListeners('postSoftDelete'));
-        self::assertContains(DoctrineAuditListener::class, array_map(static fn (object $listener): string => $listener::class, $events->getListeners('postSoftDelete')));
+        self::assertTrue($events->hasListeners('preSoftDelete'));
+        self::assertContains(DoctrineAuditListener::class, array_map(static fn (object $listener): string => $listener::class, $events->getListeners('preSoftDelete')));
     }
 
     public function testConsoleRegistersTheDoctrineStorageCommands(): void

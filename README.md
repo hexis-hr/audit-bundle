@@ -185,7 +185,7 @@ audit:
                 ignore_fields: [updated_at]
 ```
 
-Soft deletes: when [Gedmo SoftDeleteable](https://github.com/doctrine-extensions/DoctrineExtensions/blob/main/doc/softdeleteable.md) turns a `remove()` into setting `deletedAt`, the row is an `ENTITY_DELETE` with action `soft_delete` (`DoctrineAuditListener::ACTION_SOFT_DELETE`), whatever order the two Doctrine listeners run in. Removing an already soft-deleted entity again (Gedmo `hardDelete`) is a plain `ENTITY_DELETE`, and setting `deletedAt` back to `null` is an `ENTITY_UPDATE`. The bundle does not depend on Gedmo: without it the `postSoftDelete` listener simply never fires.
+Soft deletes: when [Gedmo SoftDeleteable](https://github.com/doctrine-extensions/DoctrineExtensions/blob/main/doc/softdeleteable.md) turns a `remove()` into setting `deletedAt`, the row is an `ENTITY_DELETE` with action `soft_delete` (`DoctrineAuditListener::ACTION_SOFT_DELETE`), whatever order the two Doctrine listeners run in. In `full` mode its `pre_image` is the entity before the delete, `deletedAt` still empty. Removing an already soft-deleted entity again (Gedmo `hardDelete`) is a plain `ENTITY_DELETE`, and setting `deletedAt` back to `null` is an `ENTITY_UPDATE`. The bundle does not depend on Gedmo: without it the `preSoftDelete` listener simply never fires.
 
 ---
 
