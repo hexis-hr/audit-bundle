@@ -9,6 +9,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Tools\SchemaTool;
 use Hexis\AuditBundle\Domain\EventType;
 use Hexis\AuditBundle\Entity\AuditLog;
+use Hexis\AuditBundle\EventListener\DoctrineAuditListener;
 use Hexis\AuditBundle\EventListener\FlushBufferListener;
 use Hexis\AuditBundle\EventListener\SecurityAuditSubscriber;
 use Hexis\AuditBundle\Storage\AuditReader;
@@ -62,6 +63,10 @@ final class AuditBundleKernelTest extends KernelTestCase
 
         $em = $container->get('doctrine.orm.entity_manager');
         self::assertSame('hexis_audit_log', $em->getClassMetadata(AuditLog::class)->getTableName());
+
+        $events = $em->getEventManager();
+        self::assertTrue($events->hasListeners('postSoftDelete'));
+        self::assertContains(DoctrineAuditListener::class, array_map(static fn (object $listener): string => $listener::class, $events->getListeners('postSoftDelete')));
     }
 
     public function testConsoleRegistersTheDoctrineStorageCommands(): void

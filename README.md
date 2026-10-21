@@ -185,6 +185,8 @@ audit:
                 ignore_fields: [updated_at]
 ```
 
+Soft deletes: when [Gedmo SoftDeleteable](https://github.com/doctrine-extensions/DoctrineExtensions/blob/main/doc/softdeleteable.md) turns a `remove()` into setting `deletedAt`, the row is an `ENTITY_DELETE` with action `soft_delete` (`DoctrineAuditListener::ACTION_SOFT_DELETE`), whatever order the two Doctrine listeners run in. Removing an already soft-deleted entity again (Gedmo `hardDelete`) is a plain `ENTITY_DELETE`, and setting `deletedAt` back to `null` is an `ENTITY_UPDATE`. The bundle does not depend on Gedmo: without it the `postSoftDelete` listener simply never fires.
+
 ---
 
 ## Elasticsearch storage
@@ -301,7 +303,7 @@ The Doctrine listener attaches per-EM via `doctrine.event_listener` tags. If you
 
 ## Known limitations (v0.1)
 
-- **Soft-delete detection** is out of scope. Gedmo-style soft-deletes look like UPDATEs to the listener and will be tagged `ENTITY_UPDATE`, not `ENTITY_DELETE`.
+- **Soft deletes other than Gedmo's** are not detected. Setting a `deletedAt` field by hand is an ordinary `ENTITY_UPDATE`.
 - **No built-in UI.** Query the `hexis_audit_log` table directly or via your ES tooling of choice. A search/read UI is on the follow-up roadmap.
 - **No ILM.** Elasticsearch retention must be handled on the cluster side.
 
@@ -314,7 +316,7 @@ cd packages/audit-bundle
 ../../vendor/bin/phpunit
 ```
 
-Tests cover the writers (Doctrine + ES mock), the BufferedAuditWriter, ChainedAuditWriter, SecurityAuditSubscriber (each event type + credential-leak assertion), DoctrineAuditListener (insert/update/delete + full-mode pre/post images + recursion guard + ignore_fields), AuditSnapshotNormalizer (cycle-safe, relation caps), DefaultLegacyRowMapper, and DrainFallbackCommand.
+Tests cover the writers (Doctrine + ES mock), the BufferedAuditWriter, ChainedAuditWriter, SecurityAuditSubscriber (each event type + credential-leak assertion), DoctrineAuditListener (insert/update/delete + Gedmo soft deletes in both listener orders + full-mode pre/post images + recursion guard + ignore_fields), the AuditLog mapping against the bundle migrations (MySQL, PostgreSQL, SQLite), AuditSnapshotNormalizer (cycle-safe, relation caps), DefaultLegacyRowMapper, and DrainFallbackCommand.
 
 ---
 

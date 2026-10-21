@@ -104,5 +104,7 @@ return static function (ContainerConfigurator $container): void {
         ->arg('$snapshotNormalizer', service(AuditSnapshotNormalizer::class))
         ->tag('doctrine.event_listener', ['event' => 'onFlush'])
         ->tag('doctrine.event_listener', ['event' => 'postFlush'])
-        ->tag('doctrine.event_listener', ['event' => 'onClear']);
+        ->tag('doctrine.event_listener', ['event' => 'onClear'])
+        // Gedmo SoftDeleteable's event; never dispatched when Gedmo is not installed.
+        ->tag('doctrine.event_listener', ['event' => 'postSoftDelete']);
 };

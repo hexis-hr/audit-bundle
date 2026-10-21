@@ -7,6 +7,7 @@ namespace Hexis\AuditBundle\EventListener;
 use Doctrine\ORM\Event\OnFlushEventArgs;
 use Doctrine\ORM\Event\PostFlushEventArgs;
 use Doctrine\ORM\UnitOfWork;
+use Doctrine\Persistence\Event\LifecycleEventArgs;
 use Hexis\AuditBundle\Domain\Actor;
 use Hexis\AuditBundle\Domain\AuditEvent;
 use Hexis\AuditBundle\Domain\ContextCollector;
@@ -28,11 +29,20 @@ use Hexis\AuditBundle\Storage\AuditWriter;
  * Recursion guard: bundle-owned entity classes are excluded in AuditableRegistry. Additionally,
  * the writer itself uses direct DBAL (not ORM) so an audit-row write never re-enters the
  * UoW this listener is attached to.
+ *
+ * Soft deletes: Gedmo SoftDeleteable turns a remove() into an UPDATE of the deletedAt field inside
+ * its own onFlush, taking the entity out of the scheduled deletions. Its postSoftDelete event is
+ * recorded as an ENTITY_DELETE with action "soft_delete", whichever onFlush listener runs first.
  */
 final class DoctrineAuditListener
 {
+    public const ACTION_SOFT_DELETE = 'soft_delete';
+
     /** @var list<AuditEvent> events collected in onFlush, flushed in postFlush */
     private array $staged = [];
+
+    /** @var array<int, int> index in $staged of each entity's ENTITY_DELETE event, by spl_object_id */
+    private array $stagedDeletions = [];
 
     public function __construct(
         private readonly AuditableRegistry $registry,
@@ -65,8 +75,34 @@ final class DoctrineAuditListener
         foreach ($uow->getScheduledEntityDeletions() as $entity) {
             $event = $this->buildEvent($entity, $em, $uow, EventType::ENTITY_DELETE);
             if ($event !== null) {
+                $this->stagedDeletions[spl_object_id($entity)] = \count($this->staged);
                 $this->staged[] = [$event, null, false];
             }
+        }
+    }
+
+    /**
+     * Gedmo dispatches this from its onFlush. If ours ran first the remove() is already staged as a
+     * delete and becomes the soft delete; if Gedmo's ran first our onFlush never sees the entity.
+     */
+    public function postSoftDelete(LifecycleEventArgs $args): void
+    {
+        $entity = $args->getObject();
+        $index = $this->stagedDeletions[spl_object_id($entity)] ?? null;
+        if ($index !== null) {
+            $this->staged[$index][0] = $this->copyEvent($this->staged[$index][0], action: self::ACTION_SOFT_DELETE);
+
+            return;
+        }
+
+        $em = $args->getObjectManager();
+        if (!$em instanceof \Doctrine\ORM\EntityManagerInterface) {
+            return;
+        }
+
+        $event = $this->buildEvent($entity, $em, $em->getUnitOfWork(), EventType::ENTITY_DELETE, self::ACTION_SOFT_DELETE);
+        if ($event !== null) {
+            $this->staged[] = [$event, null, false];
         }
     }
 
@@ -79,6 +115,7 @@ final class DoctrineAuditListener
         $em = $args->getObjectManager();
         $staged = $this->staged;
         $this->staged = [];
+        $this->stagedDeletions = [];
 
         foreach ($staged as [$event, $entity, $needsIdBackfill]) {
             if ($needsIdBackfill && $entity !== null) {
@@ -96,9 +133,10 @@ final class DoctrineAuditListener
     {
         // If the host clears the UoW mid-flight (e.g. rollback) our staged events are stale.
         $this->staged = [];
+        $this->stagedDeletions = [];
     }
 
-    private function buildEvent(object $entity, \Doctrine\ORM\EntityManagerInterface $em, UnitOfWork $uow, EventType $type): ?AuditEvent
+    private function buildEvent(object $entity, \Doctrine\ORM\EntityManagerInterface $em, UnitOfWork $uow, EventType $type, ?string $action = null): ?AuditEvent
     {
         $class = $entity::class;
         $settings = $this->registry->settingsFor($class);
@@ -171,6 +209,7 @@ final class DoctrineAuditListener
             target: new Target(class: $class, id: $targetId),
             snapshot: $snapshot,
             context: $this->contextCollector->collectContext(),
+            action: $action,
             source: $settings->source ?? 'doctrine',
         );
     }
@@ -178,15 +217,15 @@ final class DoctrineAuditListener
     /**
      * AuditEvent is readonly: rebuild it with the changed parts, carrying every other field over.
      */
-    private function copyEvent(AuditEvent $event, Target $target): AuditEvent
+    private function copyEvent(AuditEvent $event, ?Target $target = null, ?string $action = null): AuditEvent
     {
         return new AuditEvent(
             type: $event->type,
             actor: $event->actor,
-            target: $target,
+            target: $target ?? $event->target,
             snapshot: $event->snapshot,
             context: $event->context,
-            action: $event->action,
+            action: $action ?? $event->action,
             source: $event->source,
             eventId: $event->eventId,
             occurredAt: $event->occurredAt,
