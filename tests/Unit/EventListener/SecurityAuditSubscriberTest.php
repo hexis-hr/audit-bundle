@@ -140,6 +140,23 @@ final class SecurityAuditSubscriberTest extends TestCase
         self::assertLessThanOrEqual(64, mb_strlen($this->writer->written[0]->action));
     }
 
+    public function testLoginFailureIdentifierIsCutToTheActorColumnWidth(): void
+    {
+        $email = str_repeat('a', 188) . '@example.com';
+        foreach ([$email, str_repeat('b', 300)] as $username) {
+            $this->subscriber()->onLoginFailure(new LoginFailureEvent(
+                new BadCredentialsException('nope'),
+                $this->dummyAuthenticator(),
+                new Request([], ['_username' => $username]),
+                null,
+                'main',
+            ));
+        }
+
+        self::assertSame($email, $this->writer->written[0]->actor->id);
+        self::assertSame(str_repeat('b', 255), $this->writer->written[1]->actor->id);
+    }
+
     public function testSwitchUserEnter(): void
     {
         $subscriber = $this->subscriber();

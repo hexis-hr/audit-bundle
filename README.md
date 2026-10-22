@@ -111,7 +111,7 @@ audit:
 bin/console doctrine:migrations:migrate
 ```
 
-One table is created: `hexis_audit_log` (vendor-namespaced to avoid collisions with host-owned `audit_log`). Name is configurable via `audit.storage.doctrine.table` (full override) or `audit.storage.doctrine.table_prefix`. Indexes cover `(occurred_at)`, `(actor_id, occurred_at)`, `(target_class, target_id, occurred_at)`, `(event_type, occurred_at)`, `(session_id_hash, occurred_at)`, and `(source_of_truth, pending_replay_at)`.
+One table is created: `hexis_audit_log` (vendor-namespaced to avoid collisions with host-owned `audit_log`). `actor_id` and `impersonator_id` hold the user identifier as returned by `getUserIdentifier()`, up to 255 characters (64 before `Version20261022000001`). Name is configurable via `audit.storage.doctrine.table` (full override) or `audit.storage.doctrine.table_prefix`. Indexes cover `(occurred_at)`, `(actor_id, occurred_at)`, `(target_class, target_id, occurred_at)`, `(event_type, occurred_at)`, `(session_id_hash, occurred_at)`, and `(source_of_truth, pending_replay_at)`.
 
 ---
 

@@ -99,7 +99,7 @@ final class SecurityAuditSubscriber implements EventSubscriberInterface
         foreach (['_username', 'username', 'email', '_email'] as $candidate) {
             $value = $request->request->get($candidate);
             if (is_string($value) && $value !== '') {
-                $attemptedIdentifier = mb_substr($value, 0, 64);
+                $attemptedIdentifier = mb_substr($value, 0, 255);
                 break;
             }
         }
