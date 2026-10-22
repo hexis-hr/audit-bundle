@@ -194,7 +194,7 @@ References: a related entity, in a diff (to-one values and collection elements) 
 { "@ref": "App\\Entity\\Term", "id": { "year": 2026, "season": "spring" } }
 ```
 
-An identifier that is itself an entity (derived identity) is recorded as that entity's identifier, other identifier objects such as a `Ulid` as strings. A reference to an entity inserted in the same flush carries the id the database gives it: the listener fills it in after the insert, so two new elements stay distinguishable. Objects that are not mapped entities (embeddables, value objects) are recorded as `{@ref, id}` from their `getId()` when they have one, else as a bare `{@ref}`.
+An identifier that is itself an entity (derived identity) is recorded as that entity's identifier, other identifier objects such as a `Ulid` as strings. A reference to an entity inserted in the same flush carries the id the database gives it: the listener fills it in after the insert, so two new elements stay distinguishable. Objects that are not mapped entities (embeddables, mapped superclasses, value objects) are recorded as `{@ref, id}` from their `getId()` when they have one, else as a bare `{@ref}`; a `getId()` that throws or returns something without a string form also gives a bare `{@ref}` instead of failing the flush.
 
 For vendor entities you can't annotate, configure via YAML:
 
