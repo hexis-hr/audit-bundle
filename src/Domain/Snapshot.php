@@ -11,7 +11,7 @@ final class Snapshot
     public const MODE_FULL = 'full';
 
     /**
-     * @param array<string, array{old: mixed, new: mixed}>|null $diff
+     * @param array<string, array{old: mixed, new: mixed}|array{added: list<mixed>, removed: list<mixed>}>|null $diff
      * @param array<string, mixed>|null $preImage
      * @param array<string, mixed>|null $postImage
      */
@@ -29,7 +29,7 @@ final class Snapshot
     }
 
     /**
-     * @param array<string, array{old: mixed, new: mixed}> $diff
+     * @param array<string, array{old: mixed, new: mixed}|array{added: list<mixed>, removed: list<mixed>}> $diff
      */
     public static function changedFields(array $diff): self
     {
@@ -39,7 +39,7 @@ final class Snapshot
     /**
      * @param array<string, mixed>|null $preImage
      * @param array<string, mixed>|null $postImage
-     * @param array<string, array{old: mixed, new: mixed}>|null $diff
+     * @param array<string, array{old: mixed, new: mixed}|array{added: list<mixed>, removed: list<mixed>}>|null $diff
      */
     public static function full(?array $preImage, ?array $postImage, ?array $diff = null): self
     {

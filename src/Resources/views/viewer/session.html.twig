@@ -43,7 +43,11 @@
                     {% if row.diff %}
                         <div class="mt-1">
                             {% for field, change in row.diff %}
-                                <code class="me-2"><strong>{{ field }}</strong>: {{ change.old|json_encode }} → {{ change.new|json_encode }}</code>
+                                {% if change.added is defined %}
+                                    <code class="me-2"><strong>{{ field }}</strong>: added {{ change.added|json_encode }}, removed {{ change.removed|json_encode }}</code>
+                                {% else %}
+                                    <code class="me-2"><strong>{{ field }}</strong>: {{ change.old|json_encode }} → {{ change.new|json_encode }}</code>
+                                {% endif %}
                             {% endfor %}
                         </div>
                     {% endif %}

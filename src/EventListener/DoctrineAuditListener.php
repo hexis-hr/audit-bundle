@@ -6,6 +6,9 @@ namespace Hexis\AuditBundle\EventListener;
 
 use Doctrine\ORM\Event\OnFlushEventArgs;
 use Doctrine\ORM\Event\PostFlushEventArgs;
+use Doctrine\ORM\Mapping\AssociationMapping;
+use Doctrine\ORM\Mapping\ClassMetadata;
+use Doctrine\ORM\PersistentCollection;
 use Doctrine\ORM\UnitOfWork;
 use Doctrine\Persistence\Event\LifecycleEventArgs;
 use Hexis\AuditBundle\Domain\Actor;
@@ -33,6 +36,10 @@ use Hexis\AuditBundle\Storage\AuditWriter;
  * Soft deletes: Gedmo SoftDeleteable turns a remove() into an UPDATE of the deletedAt field inside
  * its own onFlush, taking the entity out of the scheduled deletions. Its preSoftDelete event is
  * recorded as an ENTITY_DELETE with action "soft_delete", whichever onFlush listener runs first.
+ *
+ * Many-to-many: when only an owning-side collection changes, Doctrine schedules the owner as an
+ * update with an empty change set. onFlush reads those changes from the scheduled collection updates
+ * and deletions and records them in the diff as {field: {added: [...], removed: [...]}}.
  */
 final class DoctrineAuditListener
 {
@@ -56,6 +63,7 @@ final class DoctrineAuditListener
     {
         $em = $args->getObjectManager();
         $uow = $em->getUnitOfWork();
+        $collectionChanges = $this->collectionChanges($uow);
 
         foreach ($uow->getScheduledEntityInsertions() as $entity) {
             $event = $this->buildEvent($entity, $em, $uow, EventType::ENTITY_INSERT);
@@ -66,7 +74,17 @@ final class DoctrineAuditListener
         }
 
         foreach ($uow->getScheduledEntityUpdates() as $entity) {
-            $event = $this->buildEvent($entity, $em, $uow, EventType::ENTITY_UPDATE);
+            $oid = spl_object_id($entity);
+            $event = $this->buildEvent($entity, $em, $uow, EventType::ENTITY_UPDATE, collectionChanges: $collectionChanges[$oid][1] ?? []);
+            unset($collectionChanges[$oid]);
+            if ($event !== null) {
+                $this->staged[] = [$event, null, false];
+            }
+        }
+
+        // clear() followed by replacing the collection leaves its owner out of the scheduled updates.
+        foreach ($collectionChanges as [$owner, $changes]) {
+            $event = $this->buildEvent($owner, $em, $uow, EventType::ENTITY_UPDATE, collectionChanges: $changes);
             if ($event !== null) {
                 $this->staged[] = [$event, null, false];
             }
@@ -137,7 +155,10 @@ final class DoctrineAuditListener
         $this->stagedDeletions = [];
     }
 
-    private function buildEvent(object $entity, \Doctrine\ORM\EntityManagerInterface $em, UnitOfWork $uow, EventType $type, ?string $action = null): ?AuditEvent
+    /**
+     * @param array<string, array{added: list<object>, removed: list<object>}> $collectionChanges
+     */
+    private function buildEvent(object $entity, \Doctrine\ORM\EntityManagerInterface $em, UnitOfWork $uow, EventType $type, ?string $action = null, array $collectionChanges = []): ?AuditEvent
     {
         $class = $entity::class;
         $settings = $this->registry->settingsFor($class);
@@ -150,18 +171,21 @@ final class DoctrineAuditListener
 
         $diff = null;
         if ($type === EventType::ENTITY_UPDATE && $mode !== Snapshot::MODE_NONE) {
-            $changeSet = $uow->getEntityChangeSet($entity);
-            if ($changeSet === []) {
-                return null;
-            }
             $diff = [];
-            foreach ($changeSet as $field => [$old, $new]) {
+            foreach ($this->fieldChanges($uow, $entity) as $field => [$old, $new]) {
                 if (isset($ignore[$field])) {
                     continue;
                 }
                 $diff[$field] = [
                     'old' => $this->scalarize($old),
                     'new' => $this->scalarize($new),
+                ];
+            }
+            // Ignored fields are already left out of $collectionChanges.
+            foreach ($collectionChanges as $field => $change) {
+                $diff[$field] = [
+                    'added' => array_map($this->scalarize(...), $change['added']),
+                    'removed' => array_map($this->scalarize(...), $change['removed']),
                 ];
             }
             if ($diff === []) {
@@ -173,19 +197,25 @@ final class DoctrineAuditListener
         //   INSERT → post-image only.
         //   DELETE → pre-image only (entity is about to disappear).
         //   UPDATE → post-image from the current entity, pre-image derived by replaying the change set
-        //            in reverse (old values from changeset layered onto the post-image). Avoids relying
-        //            on UnitOfWork::getOriginalEntityData semantics that can drift across ORM versions.
+        //            in reverse (old values from changeset layered onto the post-image, many-to-many
+        //            additions taken out and removals put back). Avoids relying on
+        //            UnitOfWork::getOriginalEntityData semantics that can drift across ORM versions.
         $preImage = null;
         $postImage = null;
         if ($mode === Snapshot::MODE_FULL && $this->snapshotNormalizer !== null) {
             if ($type === EventType::ENTITY_UPDATE) {
                 $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields);
                 $preImage = $postImage;
-                foreach ($uow->getEntityChangeSet($entity) as $field => [$old, $_new]) {
+                foreach ($this->fieldChanges($uow, $entity) as $field => [$old, $_new]) {
                     if (isset($ignore[$field])) {
                         continue;
                     }
                     $preImage[$field] = $this->scalarize($old);
+                }
+                foreach (array_keys($collectionChanges) as $field) {
+                    if (\is_array($preImage[$field] ?? null)) {
+                        $preImage[$field] = $this->collectionBefore($preImage[$field], $diff[$field]);
+                    }
                 }
             } elseif ($type === EventType::ENTITY_DELETE) {
                 $preImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields);
@@ -213,6 +243,127 @@ final class DoctrineAuditListener
             action: $action,
             source: $settings->source ?? 'doctrine',
         );
+    }
+
+    /**
+     * The net elements added to and removed from each audited many-to-many field, per owner. A replaced
+     * collection is scheduled twice, the old one for deletion and the new one for update, so both are
+     * merged by object identity.
+     *
+     * @return array<int, array{object, array<string, array{added: list<object>, removed: list<object>}>}> by spl_object_id of the owner
+     */
+    private function collectionChanges(UnitOfWork $uow): array
+    {
+        $owners = [];
+        $elements = [];
+        foreach ($this->scheduledCollectionChanges($uow) as [$owner, $field, $added, $removed]) {
+            $oid = spl_object_id($owner);
+            $owners[$oid] = $owner;
+            foreach ($added as $element) {
+                $elements[$oid][$field]['added'][spl_object_id($element)] = $element;
+            }
+            foreach ($removed as $element) {
+                $elements[$oid][$field]['removed'][spl_object_id($element)] = $element;
+            }
+        }
+
+        $changes = [];
+        foreach ($elements as $oid => $fields) {
+            foreach ($fields as $field => $change) {
+                $added = $change['added'] ?? [];
+                $removed = $change['removed'] ?? [];
+                $net = [
+                    'added' => array_values(array_diff_key($added, $removed)),
+                    'removed' => array_values(array_diff_key($removed, $added)),
+                ];
+                if ($net['added'] !== [] || $net['removed'] !== []) {
+                    $changes[$oid][0] = $owners[$oid];
+                    $changes[$oid][1][$field] = $net;
+                }
+            }
+        }
+
+        return $changes;
+    }
+
+    /**
+     * @return iterable<array{object, string, array<object>, array<object>}> owner, field, added and removed elements
+     */
+    private function scheduledCollectionChanges(UnitOfWork $uow): iterable
+    {
+        foreach ($uow->getScheduledCollectionDeletions() as $collection) {
+            $field = $this->auditedManyToManyField($collection, $uow);
+            if ($field !== null) {
+                // Every element goes. clear() resets the snapshot and a collection never loaded has none,
+                // so then they are read from the join table, which still holds them at this point.
+                $removed = $collection->getSnapshot() ?: $uow->getCollectionPersister($collection->getMapping())->slice($collection, 0);
+                yield [$collection->getOwner(), $field, [], $removed];
+            }
+        }
+
+        foreach ($uow->getScheduledCollectionUpdates() as $collection) {
+            $field = $this->auditedManyToManyField($collection, $uow);
+            if ($field !== null) {
+                yield [$collection->getOwner(), $field, $collection->getInsertDiff(), $collection->getDeleteDiff()];
+            }
+        }
+    }
+
+    /**
+     * The collection's field when its changes belong in an audited update diff: the owning side of a
+     * many-to-many (a one-to-many or inverse side is persisted through the other entity), owned by an
+     * entity that is neither inserted nor deleted, audited in a mode with a diff, and not ignored.
+     */
+    private function auditedManyToManyField(PersistentCollection $collection, UnitOfWork $uow): ?string
+    {
+        $mapping = $collection->getMapping();
+        // ORM 3 maps associations as objects, ORM 2 as arrays.
+        [$isOwningManyToMany, $field] = $mapping instanceof AssociationMapping
+            ? [$mapping->isManyToManyOwningSide(), $mapping->fieldName]
+            : [$mapping['type'] === ClassMetadata::MANY_TO_MANY && $mapping['isOwningSide'], $mapping['fieldName']];
+
+        $owner = $collection->getOwner();
+        if (!$isOwningManyToMany || $owner === null || $uow->isScheduledForInsert($owner) || $uow->isScheduledForDelete($owner)) {
+            return null;
+        }
+
+        $settings = $this->registry->settingsFor($owner::class);
+        if ($settings === null || $settings->mode === Snapshot::MODE_NONE || \in_array($field, $settings->ignoreFields, true)) {
+            return null;
+        }
+
+        return $field;
+    }
+
+    /**
+     * The entity's change set without its to-many fields: for a replaced collection Doctrine puts the old
+     * PersistentCollection there instead of an [old, new] pair.
+     *
+     * @return array<string, array{mixed, mixed}>
+     */
+    private function fieldChanges(UnitOfWork $uow, object $entity): array
+    {
+        return array_filter($uow->getEntityChangeSet($entity), \is_array(...));
+    }
+
+    /**
+     * A normalized collection as it was before the change: the added elements taken out, the removed ones
+     * put back. The original order is unknown, so the removed elements go last.
+     *
+     * @param array<mixed> $after
+     * @param array{added: list<mixed>, removed: list<mixed>} $change
+     * @return list<mixed>
+     */
+    private function collectionBefore(array $after, array $change): array
+    {
+        foreach ($change['added'] as $element) {
+            $key = array_search($element, $after, true);
+            if ($key !== false) {
+                unset($after[$key]);
+            }
+        }
+
+        return [...array_values($after), ...$change['removed']];
     }
 
     /**

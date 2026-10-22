@@ -169,10 +169,24 @@ Modes:
 | Mode | Written | Use case |
 |---|---|---|
 | `none` | Only the fact an entity was mutated + its class/id | Low-cost activity log |
-| `changed_fields` | `{field: {old, new}}` diff over the changed columns | Change-tracking UI |
+| `changed_fields` | `{field: {old, new}}` diff over the changed columns, `{field: {added, removed}}` for many-to-many collections | Change-tracking UI |
 | `full` | pre_image + post_image + diff via Serializer group `audit:snapshot` | Versioning / time-travel |
 
-`ignoreFields` excludes named fields from both diff and snapshot — good for `updatedAt` columns that would otherwise show up in every row.
+`ignoreFields` excludes named fields from both diff and snapshot — good for `updatedAt` columns that would otherwise show up in every row. It applies to collection fields too.
+
+Many-to-many: a change to the owning side of a `ManyToMany` collection is an `ENTITY_UPDATE` of the owner, also when no column changed. In `changed_fields` and `full` mode its diff entry lists the elements added and removed, as `{@ref, id}` references:
+
+```json
+{
+    "name": { "old": "Ladybirds", "new": "Butterflies" },
+    "teachers": {
+        "added": [{ "@ref": "App\\Entity\\User", "id": 12 }],
+        "removed": [{ "@ref": "App\\Entity\\User", "id": 7 }]
+    }
+}
+```
+
+Replacing the whole collection records only the net difference between the old and the new elements. When Doctrine no longer holds the old elements (after `clear()`, or when a collection that was never loaded is replaced), they are read from the join table with one query. In `full` mode the field's `pre_image` is its `post_image` list with the added elements taken out and the removed ones appended; the original order is not kept. Inverse sides and `OneToMany` collections are not recorded on their owner, because Doctrine persists those changes through the other entity.
 
 For vendor entities you can't annotate, configure via YAML:
 
@@ -316,7 +330,7 @@ cd packages/audit-bundle
 ../../vendor/bin/phpunit
 ```
 
-Tests cover the writers (Doctrine + ES mock), the BufferedAuditWriter, ChainedAuditWriter, SecurityAuditSubscriber (each event type + credential-leak assertion), DoctrineAuditListener (insert/update/delete + Gedmo soft deletes in both listener orders + full-mode pre/post images + recursion guard + ignore_fields), the AuditLog mapping against the bundle migrations (MySQL, PostgreSQL, SQLite), AuditSnapshotNormalizer (cycle-safe, relation caps), DefaultLegacyRowMapper, and DrainFallbackCommand.
+Tests cover the writers (Doctrine + ES mock), the BufferedAuditWriter, ChainedAuditWriter, SecurityAuditSubscriber (each event type + credential-leak assertion), DoctrineAuditListener (insert/update/delete + many-to-many diffs + Gedmo soft deletes in both listener orders + full-mode pre/post images + recursion guard + ignore_fields), the AuditLog mapping against the bundle migrations (MySQL, PostgreSQL, SQLite), AuditSnapshotNormalizer (cycle-safe, relation caps), DefaultLegacyRowMapper, and DrainFallbackCommand.
 
 ---
 
