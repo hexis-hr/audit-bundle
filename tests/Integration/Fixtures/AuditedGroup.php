@@ -22,6 +22,10 @@ class AuditedGroup
     #[ORM\Column(type: 'string', length: 100)]
     public string $name = '';
 
+    /** @var array<string, mixed>|null */
+    #[ORM\Column(name: 'payload', type: 'json', nullable: true)]
+    public ?array $payload = null;
+
     #[ORM\ManyToOne(targetEntity: Teacher::class)]
     #[ORM\JoinColumn(name: 'lead_id', referencedColumnName: 'id', nullable: true)]
     public ?Teacher $lead = null;

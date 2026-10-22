@@ -28,8 +28,8 @@ final class AuditSnapshotNormalizer
 
     /**
      * @param list<string> $ignoreFields
-     * @param (\Closure(object): array<string, mixed>)|null $unsavedRef renders a related entity whose
-     *        getId() is still null, e.g. one inserted in the same flush; default `{"@ref": <fqcn>}`
+     * @param (\Closure(object): mixed)|null $unsavedRef renders a related entity whose getId() is still
+     *        null, e.g. one inserted in the same flush; default `{"@ref": <fqcn>}`
      * @return array<string, mixed>
      */
     public function normalize(object $entity, array $ignoreFields = [], ?\Closure $unsavedRef = null): array

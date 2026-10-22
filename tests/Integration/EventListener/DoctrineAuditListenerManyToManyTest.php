@@ -275,6 +275,33 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
         self::assertStringNotContainsString('@pending', $row['pre_image'] . $row['post_image']);
     }
 
+    public function testJsonValueContainingPendingKeyIsStoredAsGiven(): void
+    {
+        $group = $this->group(AuditedGroup::class);
+
+        // Application data that happens to look like the listener's own pending-reference marker.
+        $payload = [
+            'job' => ['@pending' => 'client-token', '@ref' => 'external-job', 'status' => 'queued'],
+            'retry' => ['@pending' => true],
+        ];
+        $group->payload = $payload;
+        $dan = $this->unsavedTeacher('Dan');
+        $group->teachers->add($dan);
+        set_error_handler(static function (int $severity, string $message, string $file, int $line): never {
+            throw new \ErrorException($message, 0, $severity, $file, $line);
+        });
+        try {
+            $this->flush();
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertSame([
+            'payload' => ['old' => null, 'new' => $payload],
+            'teachers' => ['added' => [self::ref($dan)], 'removed' => []],
+        ], $this->updateDiff());
+    }
+
     private function listenWith(AuditableRegistry $registry): void
     {
         $this->em = OrmFactory::create();

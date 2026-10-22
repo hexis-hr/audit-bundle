@@ -48,15 +48,13 @@ final class DoctrineAuditListener
 {
     public const ACTION_SOFT_DELETE = 'soft_delete';
 
-    private const PENDING_REF = '@pending';
-
     /** @var list<AuditEvent> events collected in onFlush, flushed in postFlush */
     private array $staged = [];
 
     /** @var array<int, int> index in $staged of each entity's ENTITY_DELETE event, by spl_object_id */
     private array $stagedDeletions = [];
 
-    /** @var array<int, object> referenced entities without an id yet, by spl_object_id */
+    /** @var array<int, PendingReference> one placeholder per referenced entity without an id yet, by spl_object_id */
     private array $pendingRefs = [];
 
     public function __construct(
@@ -135,7 +133,7 @@ final class DoctrineAuditListener
 
     public function postFlush(PostFlushEventArgs $args): void
     {
-        $pendingRefs = $this->pendingRefs;
+        $hasPendingRefs = $this->pendingRefs !== [];
         $this->pendingRefs = [];
         if ($this->staged === []) {
             return;
@@ -154,12 +152,12 @@ final class DoctrineAuditListener
                     $event = $this->copyEvent($event, target: new Target(class: $event->target->class, id: (string) reset($ids)));
                 }
             }
-            if ($pendingRefs !== []) {
+            if ($hasPendingRefs) {
                 $event = $this->copyEvent($event, snapshot: new Snapshot(
                     $event->snapshot->mode,
-                    $this->resolveRefs($event->snapshot->diff, $pendingRefs),
-                    $this->resolveRefs($event->snapshot->preImage, $pendingRefs),
-                    $this->resolveRefs($event->snapshot->postImage, $pendingRefs),
+                    $this->resolveRefs($event->snapshot->diff),
+                    $this->resolveRefs($event->snapshot->preImage),
+                    $this->resolveRefs($event->snapshot->postImage),
                 ));
             }
             $this->writer->write($event);
@@ -449,29 +447,23 @@ final class DoctrineAuditListener
     }
 
     /**
-     * A reference to an entity without an id yet; postFlush puts the id in once the insert assigned it.
-     *
-     * @return array{'@ref': class-string, '@pending': int}
+     * A reference to an entity without an id yet; postFlush puts the id in once the insert assigned it. The
+     * same entity gets the same placeholder, so the diff and the images can still be matched strictly.
      */
-    private function pendingRef(object $entity): array
+    private function pendingRef(object $entity): PendingReference
     {
-        $this->pendingRefs[spl_object_id($entity)] = $entity;
-
-        return ['@ref' => $entity::class, self::PENDING_REF => spl_object_id($entity)];
+        return $this->pendingRefs[spl_object_id($entity)] ??= new PendingReference($entity);
     }
 
     /**
-     * @param array<int, object> $pendingRefs
+     * Staged values hold only scalars, arrays and PendingReference placeholders, so the placeholders are
+     * the only objects met here; application arrays are never inspected for marker keys.
      */
-    private function resolveRefs(mixed $value, array $pendingRefs): mixed
+    private function resolveRefs(mixed $value): mixed
     {
-        if (!\is_array($value)) {
-            return $value;
-        }
-
-        if (isset($value[self::PENDING_REF])) {
-            $ref = ['@ref' => $value['@ref']];
-            $id = ($pendingRefs[$value[self::PENDING_REF]] ?? null)?->getId();
+        if ($value instanceof PendingReference) {
+            $ref = ['@ref' => $value->entity::class];
+            $id = $value->entity->getId();
             if ($id !== null) {
                 $ref['id'] = is_scalar($id) ? $id : (string) $id;
             }
@@ -479,6 +471,10 @@ final class DoctrineAuditListener
             return $ref;
         }
 
-        return array_map(fn (mixed $item): mixed => $this->resolveRefs($item, $pendingRefs), $value);
+        if (\is_array($value)) {
+            return array_map($this->resolveRefs(...), $value);
+        }
+
+        return $value;
     }
 }
