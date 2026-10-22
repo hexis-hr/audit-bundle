@@ -111,7 +111,7 @@ audit:
 bin/console doctrine:migrations:migrate
 ```
 
-One table is created: `hexis_audit_log` (vendor-namespaced to avoid collisions with host-owned `audit_log`). Name is configurable via `audit.storage.doctrine.table` (full override) or `audit.storage.doctrine.table_prefix`. Indexes cover `(occurred_at)`, `(actor_id, occurred_at)`, `(target_class, target_id, occurred_at)`, `(event_type, occurred_at)`, `(session_id_hash, occurred_at)`, and `(source_of_truth, pending_replay_at)`.
+One table is created: `hexis_audit_log` (vendor-namespaced to avoid collisions with host-owned `audit_log`). `actor_id` and `impersonator_id` hold the user identifier as returned by `getUserIdentifier()`, up to 255 characters (64 before `Version20261022000001`). Name is configurable via `audit.storage.doctrine.table` (full override) or `audit.storage.doctrine.table_prefix`. Indexes cover `(occurred_at)`, `(actor_id, occurred_at)`, `(target_class, target_id, occurred_at)`, `(event_type, occurred_at)`, `(session_id_hash, occurred_at)`, and `(source_of_truth, pending_replay_at)`.
 
 ---
 
@@ -169,10 +169,32 @@ Modes:
 | Mode | Written | Use case |
 |---|---|---|
 | `none` | Only the fact an entity was mutated + its class/id | Low-cost activity log |
-| `changed_fields` | `{field: {old, new}}` diff over the changed columns | Change-tracking UI |
+| `changed_fields` | `{field: {old, new}}` diff over the changed columns, `{field: {added, removed}}` for many-to-many collections | Change-tracking UI |
 | `full` | pre_image + post_image + diff via Serializer group `audit:snapshot` | Versioning / time-travel |
 
-`ignoreFields` excludes named fields from both diff and snapshot — good for `updatedAt` columns that would otherwise show up in every row.
+`ignoreFields` excludes named fields from both diff and snapshot — good for `updatedAt` columns that would otherwise show up in every row. It applies to collection fields too.
+
+Many-to-many: a change to the owning side of a `ManyToMany` collection is an `ENTITY_UPDATE` of the owner, also when no column changed. In `changed_fields` and `full` mode its diff entry lists the elements added and removed, as `{@ref, id}` references:
+
+```json
+{
+    "name": { "old": "Ladybirds", "new": "Butterflies" },
+    "teachers": {
+        "added": [{ "@ref": "App\\Entity\\User", "id": 12 }],
+        "removed": [{ "@ref": "App\\Entity\\User", "id": 7 }]
+    }
+}
+```
+
+Replacing the whole collection records only the net difference between the old and the new elements. When Doctrine no longer holds the old elements (after `clear()`, or when a collection that was never loaded is replaced), they are read from the join table with one query. In `full` mode the field's `pre_image` is its `post_image` list with the added elements taken out and the removed ones appended; the original order is not kept. Inverse sides and `OneToMany` collections are not recorded on their owner, because Doctrine persists those changes through the other entity.
+
+References: a related entity, in a diff (to-one values and collection elements) or in an image, is recorded as `{@ref, id}` read from its Doctrine mapping, so it needs no `getId()` method. `@ref` is the mapped entity class (a lazy proxy is reported as the entity class). `id` is the value of a single identifier field, or `{field: value, ...}` for a composite identifier:
+
+```json
+{ "@ref": "App\\Entity\\Term", "id": { "year": 2026, "season": "spring" } }
+```
+
+An identifier that is itself an entity (derived identity) is recorded as that entity's identifier, other identifier objects such as a `Ulid` as strings. A reference to an entity inserted in the same flush carries the id the database gives it: the listener fills it in after the insert, so two new elements stay distinguishable. Objects that are not mapped entities (embeddables, mapped superclasses, value objects) are recorded as `{@ref, id}` from their `getId()` when they have one, else as a bare `{@ref}`; a `getId()` that throws or returns something without a string form also gives a bare `{@ref}` instead of failing the flush.
 
 For vendor entities you can't annotate, configure via YAML:
 
@@ -316,7 +338,7 @@ cd packages/audit-bundle
 ../../vendor/bin/phpunit
 ```
 
-Tests cover the writers (Doctrine + ES mock), the BufferedAuditWriter, ChainedAuditWriter, SecurityAuditSubscriber (each event type + credential-leak assertion), DoctrineAuditListener (insert/update/delete + Gedmo soft deletes in both listener orders + full-mode pre/post images + recursion guard + ignore_fields), the AuditLog mapping against the bundle migrations (MySQL, PostgreSQL, SQLite), AuditSnapshotNormalizer (cycle-safe, relation caps), DefaultLegacyRowMapper, and DrainFallbackCommand.
+Tests cover the writers (Doctrine + ES mock), the BufferedAuditWriter, ChainedAuditWriter, SecurityAuditSubscriber (each event type + credential-leak assertion), DoctrineAuditListener (insert/update/delete + many-to-many diffs + Gedmo soft deletes in both listener orders + full-mode pre/post images + recursion guard + ignore_fields), the AuditLog mapping against the bundle migrations (MySQL, PostgreSQL, SQLite), AuditSnapshotNormalizer (cycle-safe, relation caps), DefaultLegacyRowMapper, and DrainFallbackCommand.
 
 ---
 

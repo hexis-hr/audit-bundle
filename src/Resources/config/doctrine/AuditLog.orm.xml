@@ -17,10 +17,10 @@
         <field name="source" column="source" type="string" length="64" nullable="true"/>
         <field name="occurredAt" column="occurred_at" type="datetime_immutable"/>
 
-        <field name="actorId" column="actor_id" type="string" length="64" nullable="true"/>
+        <field name="actorId" column="actor_id" type="string" length="255" nullable="true"/>
         <field name="actorType" column="actor_type" type="string" length="255" nullable="true"/>
         <field name="actorFirewall" column="actor_firewall" type="string" length="32" nullable="true"/>
-        <field name="impersonatorId" column="impersonator_id" type="string" length="64" nullable="true"/>
+        <field name="impersonatorId" column="impersonator_id" type="string" length="255" nullable="true"/>
 
         <field name="targetClass" column="target_class" type="string" length="255" nullable="true"/>
         <field name="targetId" column="target_id" type="string" length="64" nullable="true"/>
