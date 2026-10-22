@@ -15,12 +15,16 @@ use Hexis\AuditBundle\EventListener\DoctrineAuditListener;
 use Hexis\AuditBundle\Serializer\AuditSnapshotNormalizer;
 use Hexis\AuditBundle\Storage\BufferedAuditWriter;
 use Hexis\AuditBundle\Storage\DoctrineAuditWriter;
+use Hexis\AuditBundle\Tests\Integration\Fixtures\Address;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\AuditedGroup;
+use Hexis\AuditBundle\Tests\Integration\Fixtures\Badge;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\FullAuditedGroup;
+use Hexis\AuditBundle\Tests\Integration\Fixtures\OpaqueValue;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\Teacher;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\Term;
 use Hexis\AuditBundle\Tests\Integration\OrmFactory;
 use Hexis\AuditBundle\Tests\Integration\SchemaFactory;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -370,6 +374,51 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
             ['term' => ['old' => null, 'new' => ['@ref' => Term::class, 'id' => ['year' => 2026, 'season' => 'spring']]]],
             $this->updateDiff(),
         );
+    }
+
+    /**
+     * @return iterable<string, array{bool}>
+     */
+    public static function opaqueValues(): iterable
+    {
+        yield 'getId() throws' => [true];
+        yield 'getId() has no string form' => [false];
+    }
+
+    #[DataProvider('opaqueValues')]
+    public function testFailingGetIdOfAValueObjectDoesNotAbortTheFlush(bool $throws): void
+    {
+        $group = $this->group(FullAuditedGroup::class);
+
+        $group->tag = new OpaqueValue($throws);
+        $group->name = 'Butterflies';
+        $this->flush();
+
+        self::assertSame(['name' => ['old' => 'Ladybirds', 'new' => 'Butterflies']], $this->updateDiff());
+        self::assertSame(['@ref' => OpaqueValue::class], json_decode($this->rows()[0]['post_image'], true)['tag']);
+    }
+
+    public function testEmbeddableIsReferencedLikeAnyOtherObject(): void
+    {
+        $group = $this->group(FullAuditedGroup::class);
+
+        $group->address->street = 'Main Street 1';
+        $this->flush();
+
+        $this->updateDiff();
+        self::assertSame(['@ref' => Address::class, 'id' => 'Main Street 1'], json_decode($this->rows()[0]['post_image'], true)['address']);
+    }
+
+    public function testMappedNonEntityIsReferencedLikeAnyOtherObject(): void
+    {
+        $group = $this->group(FullAuditedGroup::class);
+
+        $group->tag = new Badge('gold');
+        $group->name = 'Butterflies';
+        $this->flush();
+
+        $this->updateDiff();
+        self::assertSame(['@ref' => Badge::class, 'id' => 'gold'], json_decode($this->rows()[0]['post_image'], true)['tag']);
     }
 
     public function testReferenceToALazyProxyNamesTheEntityClass(): void

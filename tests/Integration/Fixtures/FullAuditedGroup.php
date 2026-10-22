@@ -29,8 +29,15 @@ class FullAuditedGroup
     #[ORM\InverseJoinColumn(name: 'teacher_id', referencedColumnName: 'id')]
     public Collection $teachers;
 
+    #[ORM\Embedded(class: Address::class, columnPrefix: 'address_')]
+    public Address $address;
+
+    /** Not mapped: full-mode images read every declared property. */
+    public ?object $tag = null;
+
     public function __construct()
     {
         $this->teachers = new ArrayCollection();
+        $this->address = new Address();
     }
 }

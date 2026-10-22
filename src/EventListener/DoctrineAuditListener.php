@@ -444,7 +444,8 @@ final class DoctrineAuditListener
      * How a related object is recorded in a diff or an image. A Doctrine entity becomes {@ref, id} with the
      * id read through its mapping, so it needs no getId() and a lazy proxy is reported as its entity class;
      * while the id is not assigned yet it becomes a placeholder. Any other object keeps {@ref, id} from its
-     * getId() when it has one, else a bare {@ref}.
+     * getId() when it has one, else a bare {@ref}: capture runs inside the host's flush, so a getter that
+     * throws or an id without a string form must not escape.
      *
      * @return array{'@ref': class-string, id?: mixed}|PendingReference
      */
@@ -452,9 +453,16 @@ final class DoctrineAuditListener
     {
         $metadata = $this->entityMetadata($object, $em);
         if ($metadata === null) {
-            $id = method_exists($object, 'getId') ? $object->getId() : null;
+            try {
+                $id = method_exists($object, 'getId') ? $object->getId() : null;
+                if ($id !== null) {
+                    return ['@ref' => $object::class, 'id' => is_scalar($id) ? $id : (string) $id];
+                }
+            } catch (\Throwable) {
+                // fall through to the bare reference
+            }
 
-            return $id === null ? ['@ref' => $object::class] : ['@ref' => $object::class, 'id' => is_scalar($id) ? $id : (string) $id];
+            return ['@ref' => $object::class];
         }
 
         $id = $this->identifier($object, $metadata, $em);
@@ -473,7 +481,10 @@ final class DoctrineAuditListener
             return null;
         }
 
-        return $em->getClassMetadata($class);
+        // Embeddables (not transient in XML or PHP mappings) and mapped superclasses have no identifier.
+        $metadata = $em->getClassMetadata($class);
+
+        return $metadata->isEmbeddedClass || $metadata->isMappedSuperclass ? null : $metadata;
     }
 
     /**
