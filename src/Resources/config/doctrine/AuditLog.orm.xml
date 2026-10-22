@@ -7,6 +7,9 @@
 
         <id name="id" type="bigint">
             <generator strategy="IDENTITY"/>
+            <options>
+                <option name="unsigned">true</option>
+            </options>
         </id>
 
         <field name="eventId" column="event_id" type="string" length="26" unique="true"/>
@@ -35,7 +38,11 @@
         <field name="diff" column="diff" type="json" nullable="true"/>
         <field name="context" column="context" type="json" nullable="true"/>
 
-        <field name="sourceOfTruth" column="source_of_truth" type="string" length="16"/>
+        <field name="sourceOfTruth" column="source_of_truth" type="string" length="16">
+            <options>
+                <option name="default">primary</option>
+            </options>
+        </field>
         <field name="pendingReplayAt" column="pending_replay_at" type="datetime_immutable" nullable="true"/>
 
         <unique-constraints>

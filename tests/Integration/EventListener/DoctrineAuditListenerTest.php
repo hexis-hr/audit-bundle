@@ -60,6 +60,8 @@ final class DoctrineAuditListenerTest extends TestCase
         $row = $this->em->getConnection()->fetchAssociative('SELECT * FROM hexis_audit_log');
         self::assertSame(EventType::ENTITY_INSERT->value, $row['event_type']);
         self::assertSame(AuditedEntity::class, $row['target_class']);
+        self::assertSame((string) $entity->id, $row['target_id']);
+        self::assertSame('doctrine', $row['source']);
     }
 
     public function testAuditsUpdateWithDiff(): void
