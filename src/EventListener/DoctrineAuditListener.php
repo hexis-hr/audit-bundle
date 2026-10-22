@@ -40,16 +40,24 @@ use Hexis\AuditBundle\Storage\AuditWriter;
  * Many-to-many: when only an owning-side collection changes, Doctrine schedules the owner as an
  * update with an empty change set. onFlush reads those changes from the scheduled collection updates
  * and deletions and records them in the diff as {field: {added: [...], removed: [...]}}.
+ *
+ * References: a related entity inserted in the same flush may only get its id from the database after
+ * onFlush, so it is staged as a pending reference and postFlush fills in the id.
  */
 final class DoctrineAuditListener
 {
     public const ACTION_SOFT_DELETE = 'soft_delete';
+
+    private const PENDING_REF = '@pending';
 
     /** @var list<AuditEvent> events collected in onFlush, flushed in postFlush */
     private array $staged = [];
 
     /** @var array<int, int> index in $staged of each entity's ENTITY_DELETE event, by spl_object_id */
     private array $stagedDeletions = [];
+
+    /** @var array<int, object> referenced entities without an id yet, by spl_object_id */
+    private array $pendingRefs = [];
 
     public function __construct(
         private readonly AuditableRegistry $registry,
@@ -127,6 +135,8 @@ final class DoctrineAuditListener
 
     public function postFlush(PostFlushEventArgs $args): void
     {
+        $pendingRefs = $this->pendingRefs;
+        $this->pendingRefs = [];
         if ($this->staged === []) {
             return;
         }
@@ -144,6 +154,14 @@ final class DoctrineAuditListener
                     $event = $this->copyEvent($event, target: new Target(class: $event->target->class, id: (string) reset($ids)));
                 }
             }
+            if ($pendingRefs !== []) {
+                $event = $this->copyEvent($event, snapshot: new Snapshot(
+                    $event->snapshot->mode,
+                    $this->resolveRefs($event->snapshot->diff, $pendingRefs),
+                    $this->resolveRefs($event->snapshot->preImage, $pendingRefs),
+                    $this->resolveRefs($event->snapshot->postImage, $pendingRefs),
+                ));
+            }
             $this->writer->write($event);
         }
     }
@@ -153,6 +171,7 @@ final class DoctrineAuditListener
         // If the host clears the UoW mid-flight (e.g. rollback) our staged events are stale.
         $this->staged = [];
         $this->stagedDeletions = [];
+        $this->pendingRefs = [];
     }
 
     /**
@@ -204,7 +223,7 @@ final class DoctrineAuditListener
         $postImage = null;
         if ($mode === Snapshot::MODE_FULL && $this->snapshotNormalizer !== null) {
             if ($type === EventType::ENTITY_UPDATE) {
-                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields);
+                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $this->pendingRef(...));
                 $preImage = $postImage;
                 foreach ($this->fieldChanges($uow, $entity) as $field => [$old, $_new]) {
                     if (isset($ignore[$field])) {
@@ -218,9 +237,9 @@ final class DoctrineAuditListener
                     }
                 }
             } elseif ($type === EventType::ENTITY_DELETE) {
-                $preImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields);
+                $preImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $this->pendingRef(...));
             } elseif ($type === EventType::ENTITY_INSERT) {
-                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields);
+                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $this->pendingRef(...));
             }
         }
 
@@ -369,13 +388,13 @@ final class DoctrineAuditListener
     /**
      * AuditEvent is readonly: rebuild it with the changed parts, carrying every other field over.
      */
-    private function copyEvent(AuditEvent $event, ?Target $target = null, ?string $action = null): AuditEvent
+    private function copyEvent(AuditEvent $event, ?Target $target = null, ?string $action = null, ?Snapshot $snapshot = null): AuditEvent
     {
         return new AuditEvent(
             type: $event->type,
             actor: $event->actor,
             target: $target ?? $event->target,
-            snapshot: $event->snapshot,
+            snapshot: $snapshot ?? $event->snapshot,
             context: $event->context,
             action: $action ?? $event->action,
             source: $event->source,
@@ -419,11 +438,47 @@ final class DoctrineAuditListener
                 if ($id !== null) {
                     return ['@ref' => $value::class, 'id' => is_scalar($id) ? $id : (string) $id];
                 }
+
+                return $this->pendingRef($value);
             }
 
             return ['@ref' => $value::class];
         }
 
         return (string) $value;
+    }
+
+    /**
+     * A reference to an entity without an id yet; postFlush puts the id in once the insert assigned it.
+     *
+     * @return array{'@ref': class-string, '@pending': int}
+     */
+    private function pendingRef(object $entity): array
+    {
+        $this->pendingRefs[spl_object_id($entity)] = $entity;
+
+        return ['@ref' => $entity::class, self::PENDING_REF => spl_object_id($entity)];
+    }
+
+    /**
+     * @param array<int, object> $pendingRefs
+     */
+    private function resolveRefs(mixed $value, array $pendingRefs): mixed
+    {
+        if (!\is_array($value)) {
+            return $value;
+        }
+
+        if (isset($value[self::PENDING_REF])) {
+            $ref = ['@ref' => $value['@ref']];
+            $id = ($pendingRefs[$value[self::PENDING_REF]] ?? null)?->getId();
+            if ($id !== null) {
+                $ref['id'] = is_scalar($id) ? $id : (string) $id;
+            }
+
+            return $ref;
+        }
+
+        return array_map(fn (mixed $item): mixed => $this->resolveRefs($item, $pendingRefs), $value);
     }
 }

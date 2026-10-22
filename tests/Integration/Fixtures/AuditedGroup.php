@@ -22,6 +22,10 @@ class AuditedGroup
     #[ORM\Column(type: 'string', length: 100)]
     public string $name = '';
 
+    #[ORM\ManyToOne(targetEntity: Teacher::class)]
+    #[ORM\JoinColumn(name: 'lead_id', referencedColumnName: 'id', nullable: true)]
+    public ?Teacher $lead = null;
+
     /** @var Collection<int, Teacher> */
     #[ORM\ManyToMany(targetEntity: Teacher::class)]
     #[ORM\JoinTable(name: 'test_audited_group_teacher')]

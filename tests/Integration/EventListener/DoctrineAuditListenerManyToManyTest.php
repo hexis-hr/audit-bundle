@@ -219,6 +219,62 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
         self::assertSame('Ladybirds', $post['name']);
     }
 
+    public function testNewTeacherAddedInTheSameFlushKeepsItsId(): void
+    {
+        [$anna] = $this->teachers('Anna');
+        $group = $this->group(AuditedGroup::class, $anna);
+
+        // The database assigns Dan's id during this flush, after onFlush has built the diff.
+        $dan = $this->unsavedTeacher('Dan');
+        $group->teachers->add($dan);
+        $this->flush();
+
+        self::assertNotNull($dan->id);
+        self::assertSame(['teachers' => ['added' => [self::ref($dan)], 'removed' => []]], $this->updateDiff());
+        self::assertStringNotContainsString('@pending', (string) $this->rows()[0]['diff']);
+    }
+
+    public function testTwoNewTeachersStayDistinct(): void
+    {
+        $group = $this->group(AuditedGroup::class);
+
+        $dan = $this->unsavedTeacher('Dan');
+        $eva = $this->unsavedTeacher('Eva');
+        $group->teachers->add($dan);
+        $group->teachers->add($eva);
+        $this->flush();
+
+        self::assertNotSame($dan->id, $eva->id);
+        self::assertEqualsCanonicalizing([self::ref($dan), self::ref($eva)], $this->updateDiff()['teachers']['added']);
+    }
+
+    public function testToOneLinkToANewEntityKeepsItsId(): void
+    {
+        $group = $this->group(AuditedGroup::class);
+
+        $dan = $this->unsavedTeacher('Dan');
+        $group->lead = $dan;
+        $this->flush();
+
+        self::assertSame(['lead' => ['old' => null, 'new' => self::ref($dan)]], $this->updateDiff());
+    }
+
+    public function testFullModeImagesKeepTheIdOfANewTeacher(): void
+    {
+        [$anna] = $this->teachers('Anna');
+        $group = $this->group(FullAuditedGroup::class, $anna);
+
+        $dan = $this->unsavedTeacher('Dan');
+        $group->teachers->add($dan);
+        $this->flush();
+
+        self::assertSame(['teachers' => ['added' => [self::ref($dan)], 'removed' => []]], $this->updateDiff());
+        $row = $this->rows()[0];
+        self::assertSame([self::ref($anna)], json_decode($row['pre_image'], true)['teachers']);
+        self::assertEqualsCanonicalizing([self::ref($anna), self::ref($dan)], json_decode($row['post_image'], true)['teachers']);
+        self::assertStringNotContainsString('@pending', $row['pre_image'] . $row['post_image']);
+    }
+
     private function listenWith(AuditableRegistry $registry): void
     {
         $this->em = OrmFactory::create();
@@ -249,6 +305,17 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
         $this->em->flush();
 
         return $teachers;
+    }
+
+    /**
+     * Persisted but not flushed: it gets its id from the database in the next flush.
+     */
+    private function unsavedTeacher(string $name): Teacher
+    {
+        $teacher = new Teacher($name);
+        $this->em->persist($teacher);
+
+        return $teacher;
     }
 
     /**

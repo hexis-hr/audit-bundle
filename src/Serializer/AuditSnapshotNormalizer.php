@@ -28,9 +28,11 @@ final class AuditSnapshotNormalizer
 
     /**
      * @param list<string> $ignoreFields
+     * @param (\Closure(object): array<string, mixed>)|null $unsavedRef renders a related entity whose
+     *        getId() is still null, e.g. one inserted in the same flush; default `{"@ref": <fqcn>}`
      * @return array<string, mixed>
      */
-    public function normalize(object $entity, array $ignoreFields = []): array
+    public function normalize(object $entity, array $ignoreFields = [], ?\Closure $unsavedRef = null): array
     {
         $ignore = array_flip($ignoreFields);
         $out = [];
@@ -43,7 +45,7 @@ final class AuditSnapshotNormalizer
             } catch (\Throwable) {
                 continue;
             }
-            $out[$name] = $this->normalizeValue($value);
+            $out[$name] = $this->normalizeValue($value, $unsavedRef);
         }
 
         return $out;
@@ -70,7 +72,7 @@ final class AuditSnapshotNormalizer
         return $this->propertyCache[$class] = $names;
     }
 
-    private function normalizeValue(mixed $value): mixed
+    private function normalizeValue(mixed $value, ?\Closure $unsavedRef): mixed
     {
         if ($value === null || is_scalar($value)) {
             return $value;
@@ -92,7 +94,7 @@ final class AuditSnapshotNormalizer
             $array = \is_array($value) ? $value : iterator_to_array($value, false);
             $result = [];
             foreach ($array as $key => $item) {
-                $result[$key] = $this->normalizeValue($item);
+                $result[$key] = $this->normalizeValue($item, $unsavedRef);
             }
 
             return $result;
@@ -105,6 +107,9 @@ final class AuditSnapshotNormalizer
                     $id = $value->getId();
                     if ($id !== null) {
                         return ['@ref' => $value::class, 'id' => is_scalar($id) ? $id : (string) $id];
+                    }
+                    if ($unsavedRef !== null) {
+                        return $unsavedRef($value);
                     }
                 } catch (\Throwable) {
                     // fall through
