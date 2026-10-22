@@ -18,6 +18,7 @@ use Hexis\AuditBundle\Storage\DoctrineAuditWriter;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\AuditedGroup;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\FullAuditedGroup;
 use Hexis\AuditBundle\Tests\Integration\Fixtures\Teacher;
+use Hexis\AuditBundle\Tests\Integration\Fixtures\Term;
 use Hexis\AuditBundle\Tests\Integration\OrmFactory;
 use Hexis\AuditBundle\Tests\Integration\SchemaFactory;
 use PHPUnit\Framework\TestCase;
@@ -302,6 +303,92 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
         ], $this->updateDiff());
     }
 
+    public function testCollectionTargetsWithoutGetIdCarryTheirIds(): void
+    {
+        $this->listenWith(new AuditableRegistry([Teacher::class => ['mode' => 'changed_fields']]));
+        [$anna] = $this->teachers('Anna');
+        $ladybirds = $this->group(AuditedGroup::class);
+        $bees = $this->group(AuditedGroup::class);
+
+        // Teacher owns assistedGroups; AuditedGroup maps its id but has no getId() method.
+        $anna->assistedGroups->add($ladybirds);
+        $anna->assistedGroups->add($bees);
+        $this->flush();
+
+        self::assertSame(['assistedGroups' => ['added' => [self::ref($ladybirds), self::ref($bees)], 'removed' => []]], $this->updateDiff());
+    }
+
+    public function testCollectionTargetWithoutGetIdInsertedInTheSameFlushGetsItsId(): void
+    {
+        $this->listenWith(new AuditableRegistry([Teacher::class => ['mode' => 'changed_fields']]));
+        [$anna] = $this->teachers('Anna');
+        $this->clearLog();
+
+        $bees = new AuditedGroup();
+        $bees->name = 'Bees';
+        $this->em->persist($bees);
+        $anna->assistedGroups->add($bees);
+        $this->flush();
+
+        self::assertNotNull($bees->id);
+        self::assertSame(
+            [EventType::ENTITY_INSERT->value, EventType::ENTITY_UPDATE->value],
+            array_column($this->rows(), 'event_type'),
+        );
+        self::assertSame(['assistedGroups' => ['added' => [self::ref($bees)], 'removed' => []]], json_decode($this->rows()[1]['diff'], true));
+    }
+
+    public function testFullModeImagesReferenceTargetsWithoutGetIdByTheirIds(): void
+    {
+        $this->listenWith(new AuditableRegistry([Teacher::class => ['mode' => 'full']]));
+        [$anna] = $this->teachers('Anna');
+        $ladybirds = $this->group(AuditedGroup::class);
+        $bees = $this->group(AuditedGroup::class);
+        $anna->assistedGroups->add($ladybirds);
+        $this->flush();
+        $this->clearLog();
+
+        $anna->assistedGroups->add($bees);
+        $this->flush();
+
+        self::assertSame(['assistedGroups' => ['added' => [self::ref($bees)], 'removed' => []]], $this->updateDiff());
+        $row = $this->rows()[0];
+        self::assertSame([self::ref($ladybirds)], json_decode($row['pre_image'], true)['assistedGroups']);
+        self::assertSame([self::ref($ladybirds), self::ref($bees)], json_decode($row['post_image'], true)['assistedGroups']);
+    }
+
+    public function testCompositeIdentifierIsRecordedByField(): void
+    {
+        $term = new Term(2026, 'spring');
+        $this->em->persist($term);
+        $group = $this->group(AuditedGroup::class);
+
+        $group->term = $term;
+        $this->flush();
+
+        self::assertSame(
+            ['term' => ['old' => null, 'new' => ['@ref' => Term::class, 'id' => ['year' => 2026, 'season' => 'spring']]]],
+            $this->updateDiff(),
+        );
+    }
+
+    public function testReferenceToALazyProxyNamesTheEntityClass(): void
+    {
+        [$anna, $ben] = $this->teachers('Anna', 'Ben');
+        $group = $this->group(AuditedGroup::class);
+        $group->lead = $anna;
+        $this->flush();
+        $this->clearLog();
+        $this->em->clear();
+
+        // Loaded again, the group's lead is an uninitialized proxy of Teacher.
+        $group = $this->em->find(AuditedGroup::class, $group->id);
+        $group->lead = $this->em->find(Teacher::class, $ben->id);
+        $this->flush();
+
+        self::assertSame(['lead' => ['old' => self::ref($anna), 'new' => self::ref($ben)]], $this->updateDiff());
+    }
+
     private function listenWith(AuditableRegistry $registry): void
     {
         $this->em = OrmFactory::create();
@@ -329,7 +416,7 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
             $teachers[] = $teacher = new Teacher($name);
             $this->em->persist($teacher);
         }
-        $this->em->flush();
+        $this->flush();
 
         return $teachers;
     }
@@ -359,7 +446,7 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
         }
         $this->em->persist($group);
         $this->flush();
-        $this->em->getConnection()->executeStatement('DELETE FROM ' . SchemaFactory::TABLE);
+        $this->clearLog();
 
         return $group;
     }
@@ -368,6 +455,11 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
     {
         $this->em->flush();
         $this->buffer->flush();
+    }
+
+    private function clearLog(): void
+    {
+        $this->em->getConnection()->executeStatement('DELETE FROM ' . SchemaFactory::TABLE);
     }
 
     /**
@@ -393,9 +485,9 @@ final class DoctrineAuditListenerManyToManyTest extends TestCase
     /**
      * @return array{'@ref': class-string, id: ?int}
      */
-    private static function ref(Teacher $teacher): array
+    private static function ref(Teacher|AuditedGroup $entity): array
     {
-        return ['@ref' => Teacher::class, 'id' => $teacher->id];
+        return ['@ref' => $entity::class, 'id' => $entity->id];
     }
 
     private function stubContextCollector(): ContextCollector

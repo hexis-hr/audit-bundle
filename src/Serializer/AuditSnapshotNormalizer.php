@@ -28,11 +28,11 @@ final class AuditSnapshotNormalizer
 
     /**
      * @param list<string> $ignoreFields
-     * @param (\Closure(object): mixed)|null $unsavedRef renders a related entity whose getId() is still
-     *        null, e.g. one inserted in the same flush; default `{"@ref": <fqcn>}`
+     * @param (\Closure(object): mixed)|null $reference renders every related object; by default
+     *        `{"@ref": <fqcn>, "id": <getId()>}`, or `{"@ref": <fqcn>}` without a non-null getId()
      * @return array<string, mixed>
      */
-    public function normalize(object $entity, array $ignoreFields = [], ?\Closure $unsavedRef = null): array
+    public function normalize(object $entity, array $ignoreFields = [], ?\Closure $reference = null): array
     {
         $ignore = array_flip($ignoreFields);
         $out = [];
@@ -45,7 +45,7 @@ final class AuditSnapshotNormalizer
             } catch (\Throwable) {
                 continue;
             }
-            $out[$name] = $this->normalizeValue($value, $unsavedRef);
+            $out[$name] = $this->normalizeValue($value, $reference);
         }
 
         return $out;
@@ -72,7 +72,7 @@ final class AuditSnapshotNormalizer
         return $this->propertyCache[$class] = $names;
     }
 
-    private function normalizeValue(mixed $value, ?\Closure $unsavedRef): mixed
+    private function normalizeValue(mixed $value, ?\Closure $reference): mixed
     {
         if ($value === null || is_scalar($value)) {
             return $value;
@@ -94,22 +94,23 @@ final class AuditSnapshotNormalizer
             $array = \is_array($value) ? $value : iterator_to_array($value, false);
             $result = [];
             foreach ($array as $key => $item) {
-                $result[$key] = $this->normalizeValue($item, $unsavedRef);
+                $result[$key] = $this->normalizeValue($item, $reference);
             }
 
             return $result;
         }
 
         if (\is_object($value)) {
+            if ($reference !== null) {
+                return $reference($value);
+            }
+
             // Try to read the identifier without dereferencing anything else on the entity.
             if (method_exists($value, 'getId')) {
                 try {
                     $id = $value->getId();
                     if ($id !== null) {
                         return ['@ref' => $value::class, 'id' => is_scalar($id) ? $id : (string) $id];
-                    }
-                    if ($unsavedRef !== null) {
-                        return $unsavedRef($value);
                     }
                 } catch (\Throwable) {
                     // fall through

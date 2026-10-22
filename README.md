@@ -188,7 +188,13 @@ Many-to-many: a change to the owning side of a `ManyToMany` collection is an `EN
 
 Replacing the whole collection records only the net difference between the old and the new elements. When Doctrine no longer holds the old elements (after `clear()`, or when a collection that was never loaded is replaced), they are read from the join table with one query. In `full` mode the field's `pre_image` is its `post_image` list with the added elements taken out and the removed ones appended; the original order is not kept. Inverse sides and `OneToMany` collections are not recorded on their owner, because Doctrine persists those changes through the other entity.
 
-A reference to an entity inserted in the same flush (in a diff or an image, to-one or many-to-many) carries the id the database gives it: the listener fills it in after the insert, so two new elements stay distinguishable.
+References: a related entity, in a diff (to-one values and collection elements) or in an image, is recorded as `{@ref, id}` read from its Doctrine mapping, so it needs no `getId()` method. `@ref` is the mapped entity class (a lazy proxy is reported as the entity class). `id` is the value of a single identifier field, or `{field: value, ...}` for a composite identifier:
+
+```json
+{ "@ref": "App\\Entity\\Term", "id": { "year": 2026, "season": "spring" } }
+```
+
+An identifier that is itself an entity (derived identity) is recorded as that entity's identifier, other identifier objects such as a `Ulid` as strings. A reference to an entity inserted in the same flush carries the id the database gives it: the listener fills it in after the insert, so two new elements stay distinguishable. Objects that are not mapped entities (embeddables, value objects) are recorded as `{@ref, id}` from their `getId()` when they have one, else as a bare `{@ref}`.
 
 For vendor entities you can't annotate, configure via YAML:
 

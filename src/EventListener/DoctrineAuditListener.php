@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Hexis\AuditBundle\EventListener;
 
+use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Event\OnFlushEventArgs;
 use Doctrine\ORM\Event\PostFlushEventArgs;
 use Doctrine\ORM\Mapping\AssociationMapping;
@@ -11,6 +12,7 @@ use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\ORM\PersistentCollection;
 use Doctrine\ORM\UnitOfWork;
 use Doctrine\Persistence\Event\LifecycleEventArgs;
+use Doctrine\Persistence\Proxy;
 use Hexis\AuditBundle\Domain\Actor;
 use Hexis\AuditBundle\Domain\AuditEvent;
 use Hexis\AuditBundle\Domain\ContextCollector;
@@ -41,8 +43,9 @@ use Hexis\AuditBundle\Storage\AuditWriter;
  * update with an empty change set. onFlush reads those changes from the scheduled collection updates
  * and deletions and records them in the diff as {field: {added: [...], removed: [...]}}.
  *
- * References: a related entity inserted in the same flush may only get its id from the database after
- * onFlush, so it is staged as a pending reference and postFlush fills in the id.
+ * References: a related entity appears as {@ref, id}, the id read through its Doctrine mapping. One inserted
+ * in the same flush may only get its id from the database after onFlush, so it is staged as a pending
+ * placeholder and postFlush fills in the id.
  */
 final class DoctrineAuditListener
 {
@@ -155,9 +158,9 @@ final class DoctrineAuditListener
             if ($hasPendingRefs) {
                 $event = $this->copyEvent($event, snapshot: new Snapshot(
                     $event->snapshot->mode,
-                    $this->resolveRefs($event->snapshot->diff),
-                    $this->resolveRefs($event->snapshot->preImage),
-                    $this->resolveRefs($event->snapshot->postImage),
+                    $this->resolveRefs($event->snapshot->diff, $em),
+                    $this->resolveRefs($event->snapshot->preImage, $em),
+                    $this->resolveRefs($event->snapshot->postImage, $em),
                 ));
             }
             $this->writer->write($event);
@@ -185,6 +188,7 @@ final class DoctrineAuditListener
 
         $ignore = array_flip($settings->ignoreFields);
         $mode = $settings->mode;
+        $reference = fn (object $related): array|PendingReference => $this->reference($related, $em);
 
         $diff = null;
         if ($type === EventType::ENTITY_UPDATE && $mode !== Snapshot::MODE_NONE) {
@@ -194,15 +198,15 @@ final class DoctrineAuditListener
                     continue;
                 }
                 $diff[$field] = [
-                    'old' => $this->scalarize($old),
-                    'new' => $this->scalarize($new),
+                    'old' => $this->scalarize($old, $em),
+                    'new' => $this->scalarize($new, $em),
                 ];
             }
             // Ignored fields are already left out of $collectionChanges.
             foreach ($collectionChanges as $field => $change) {
                 $diff[$field] = [
-                    'added' => array_map($this->scalarize(...), $change['added']),
-                    'removed' => array_map($this->scalarize(...), $change['removed']),
+                    'added' => array_map($reference, $change['added']),
+                    'removed' => array_map($reference, $change['removed']),
                 ];
             }
             if ($diff === []) {
@@ -221,13 +225,13 @@ final class DoctrineAuditListener
         $postImage = null;
         if ($mode === Snapshot::MODE_FULL && $this->snapshotNormalizer !== null) {
             if ($type === EventType::ENTITY_UPDATE) {
-                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $this->pendingRef(...));
+                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $reference);
                 $preImage = $postImage;
                 foreach ($this->fieldChanges($uow, $entity) as $field => [$old, $_new]) {
                     if (isset($ignore[$field])) {
                         continue;
                     }
-                    $preImage[$field] = $this->scalarize($old);
+                    $preImage[$field] = $this->scalarize($old, $em);
                 }
                 foreach (array_keys($collectionChanges) as $field) {
                     if (\is_array($preImage[$field] ?? null)) {
@@ -235,9 +239,9 @@ final class DoctrineAuditListener
                     }
                 }
             } elseif ($type === EventType::ENTITY_DELETE) {
-                $preImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $this->pendingRef(...));
+                $preImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $reference);
             } elseif ($type === EventType::ENTITY_INSERT) {
-                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $this->pendingRef(...));
+                $postImage = $this->snapshotNormalizer->normalize($entity, $settings->ignoreFields, $reference);
             }
         }
 
@@ -407,7 +411,7 @@ final class DoctrineAuditListener
      * represented as their identifier only — we never dereference them to avoid triggering
      * lazy loads during capture.
      */
-    private function scalarize(mixed $value): mixed
+    private function scalarize(mixed $value, EntityManagerInterface $em): mixed
     {
         if ($value === null || is_scalar($value)) {
             return $value;
@@ -426,24 +430,88 @@ final class DoctrineAuditListener
         }
 
         if (\is_array($value)) {
-            return array_map(fn ($v) => $this->scalarize($v), $value);
+            return array_map(fn ($v) => $this->scalarize($v, $em), $value);
         }
 
         if (\is_object($value)) {
-            // Try common identifier accessors without triggering anything expensive.
-            if (method_exists($value, 'getId')) {
-                $id = $value->getId();
-                if ($id !== null) {
-                    return ['@ref' => $value::class, 'id' => is_scalar($id) ? $id : (string) $id];
-                }
-
-                return $this->pendingRef($value);
-            }
-
-            return ['@ref' => $value::class];
+            return $this->reference($value, $em);
         }
 
         return (string) $value;
+    }
+
+    /**
+     * How a related object is recorded in a diff or an image. A Doctrine entity becomes {@ref, id} with the
+     * id read through its mapping, so it needs no getId() and a lazy proxy is reported as its entity class;
+     * while the id is not assigned yet it becomes a placeholder. Any other object keeps {@ref, id} from its
+     * getId() when it has one, else a bare {@ref}.
+     *
+     * @return array{'@ref': class-string, id?: mixed}|PendingReference
+     */
+    private function reference(object $object, EntityManagerInterface $em): array|PendingReference
+    {
+        $metadata = $this->entityMetadata($object, $em);
+        if ($metadata === null) {
+            $id = method_exists($object, 'getId') ? $object->getId() : null;
+
+            return $id === null ? ['@ref' => $object::class] : ['@ref' => $object::class, 'id' => is_scalar($id) ? $id : (string) $id];
+        }
+
+        $id = $this->identifier($object, $metadata, $em);
+
+        return $id === null ? $this->pendingRef($object) : ['@ref' => $metadata->getName(), 'id' => $id];
+    }
+
+    /**
+     * @return ClassMetadata<object>|null null when the object is not a mapped entity
+     */
+    private function entityMetadata(object $object, EntityManagerInterface $em): ?ClassMetadata
+    {
+        // The metadata factory resolves proxy class names in getClassMetadata() but not in isTransient().
+        $class = $object instanceof Proxy ? get_parent_class($object) : $object::class;
+        if ($class === false || $em->getMetadataFactory()->isTransient($class)) {
+            return null;
+        }
+
+        return $em->getClassMetadata($class);
+    }
+
+    /**
+     * The identifier as recorded: the value of a single identifier field, {field: value} for a composite one.
+     * A related entity used as identifier (derived identity) contributes its own identifier, any other object
+     * its string form. Null while any part of the identifier is not assigned yet.
+     *
+     * @param ClassMetadata<object> $metadata
+     */
+    private function identifier(object $entity, ClassMetadata $metadata, EntityManagerInterface $em): mixed
+    {
+        $values = $metadata->getIdentifierValues($entity);
+        if (\count($values) < \count($metadata->getIdentifierFieldNames())) {
+            return null;
+        }
+
+        foreach ($values as $field => $value) {
+            $values[$field] = $this->identifierValue($value, $em);
+            if ($values[$field] === null) {
+                return null;
+            }
+        }
+
+        return \count($values) === 1 ? reset($values) : $values;
+    }
+
+    private function identifierValue(mixed $value, EntityManagerInterface $em): mixed
+    {
+        if (!\is_object($value)) {
+            return $value;
+        }
+
+        $metadata = $this->entityMetadata($value, $em);
+        if ($metadata !== null) {
+            return $this->identifier($value, $metadata, $em);
+        }
+
+        return $value instanceof \Stringable ? (string) $value : $this->scalarize($value, $em);
     }
 
     /**
@@ -459,20 +527,17 @@ final class DoctrineAuditListener
      * Staged values hold only scalars, arrays and PendingReference placeholders, so the placeholders are
      * the only objects met here; application arrays are never inspected for marker keys.
      */
-    private function resolveRefs(mixed $value): mixed
+    private function resolveRefs(mixed $value, EntityManagerInterface $em): mixed
     {
         if ($value instanceof PendingReference) {
-            $ref = ['@ref' => $value->entity::class];
-            $id = $value->entity->getId();
-            if ($id !== null) {
-                $ref['id'] = is_scalar($id) ? $id : (string) $id;
-            }
+            $reference = $this->reference($value->entity, $em);
 
-            return $ref;
+            // An id the flush did not assign after all leaves the reference bare.
+            return $reference instanceof PendingReference ? ['@ref' => $value->entity::class] : $reference;
         }
 
         if (\is_array($value)) {
-            return array_map($this->resolveRefs(...), $value);
+            return array_map(fn (mixed $item): mixed => $this->resolveRefs($item, $em), $value);
         }
 
         return $value;

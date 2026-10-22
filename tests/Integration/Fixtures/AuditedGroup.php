@@ -30,6 +30,11 @@ class AuditedGroup
     #[ORM\JoinColumn(name: 'lead_id', referencedColumnName: 'id', nullable: true)]
     public ?Teacher $lead = null;
 
+    #[ORM\ManyToOne(targetEntity: Term::class)]
+    #[ORM\JoinColumn(name: 'term_year', referencedColumnName: 'year', nullable: true)]
+    #[ORM\JoinColumn(name: 'term_season', referencedColumnName: 'season', nullable: true)]
+    public ?Term $term = null;
+
     /** @var Collection<int, Teacher> */
     #[ORM\ManyToMany(targetEntity: Teacher::class)]
     #[ORM\JoinTable(name: 'test_audited_group_teacher')]
